@@ -15,6 +15,7 @@ const INITIAL_STATE: RegisterProviderRequest = {
   ph_no: "",
   state: "",
   dist: "",
+  location: "",
   password: "",
 };
 
@@ -57,7 +58,7 @@ export default function ProviderRegistrationPage() {
               Registration received
             </h1>
             <p className="mt-3 text-sm text-slate">
-              Your provider account is pending verification. We'll confirm
+              Your provider account is pending verification. We&apos;ll confirm
               your government ID before your listings go live.
             </p>
           </div>
@@ -156,6 +157,16 @@ export default function ProviderRegistrationPage() {
             onChange={(e) => update("dist", e.target.value)}
           />
         </div>
+
+        <FormField
+          label="Location"
+          name="location"
+          required
+          maxLength={255}
+          placeholder="POINT(77.2090 28.6139)"
+          value={form.location}
+          onChange={(e) => update("location", e.target.value)}
+        />
 
         <FormField
           label="Password"

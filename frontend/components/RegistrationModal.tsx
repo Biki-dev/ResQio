@@ -48,7 +48,7 @@ export default function RegistrationModal({
               Select an account type
             </h2>
             <p className="mt-1.5 text-sm text-slate">
-              Choose the option that matches what you're registering. Provider
+              Choose the option that matches what you&apos;re registering. Provider
               accounts require government ID verification.
             </p>
           </div>

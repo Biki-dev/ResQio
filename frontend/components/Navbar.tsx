@@ -95,6 +95,9 @@ export default function Navbar({ onGetStartedClick }: NavbarProps) {
             <a href="/admin" className="px-4 py-3 hover:bg-ink-light">
               Admin
             </a>
+            <a href="/login" className="px-4 py-3 hover:bg-ink-light">
+              Sign in
+            </a>
           </div>
           <button
             type="button"

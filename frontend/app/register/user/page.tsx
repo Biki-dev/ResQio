@@ -47,7 +47,7 @@ export default function UserRegistrationPage() {
         <PageHeader breadcrumb={["Register", "Public user"]} />
         <main className="flex min-h-[60vh] items-center justify-center bg-paper px-6">
           <div className="max-w-sm text-center">
-            <h1 className="font-display text-2xl text-ink">You're in</h1>
+            <h1 className="font-display text-2xl text-ink">You&apos;re in</h1>
             <p className="mt-3 text-sm text-slate">
               Your account is ready. You can now search for verified
               resources near you.
