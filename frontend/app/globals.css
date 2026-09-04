@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-paper text-ink font-body antialiased;
+  }
+
+  ::selection {
+    @apply bg-signal/30;
+  }
+
+  :focus-visible {
+    outline: 2px solid theme("colors.signal.DEFAULT");
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .grid-texture {
+    background-image:
+      linear-gradient(to right, rgba(247, 245, 240, 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(247, 245, 240, 0.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* Accessible skip-to-content link, standard on government portals */
+  .skip-link {
+    @apply fixed left-2 top-2 z-[100] -translate-y-16 bg-signal px-4 py-2 text-sm font-medium text-ink transition-transform focus:translate-y-0;
+  }
+
+  /* National tricolor signature stripe — the one deliberately bold
+     element on the page. Used once, directly under the header. */
+  .flag-stripe {
+    height: 4px;
+    background: linear-gradient(
+      to right,
+      theme("colors.flag.saffron") 0%,
+      theme("colors.flag.saffron") 33.3%,
+      theme("colors.flag.white") 33.3%,
+      theme("colors.flag.white") 66.6%,
+      theme("colors.flag.green") 66.6%,
+      theme("colors.flag.green") 100%
+    );
+  }
+
+  .marquee-track {
+    @apply flex w-max animate-marquee gap-16 whitespace-nowrap;
+  }
+}
