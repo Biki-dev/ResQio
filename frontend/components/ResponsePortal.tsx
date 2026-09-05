@@ -248,7 +248,106 @@ export default function ResponsePortal() {
           <label className="flex flex-1 flex-col gap-1.5"><span className="text-sm font-medium text-ink">Track an assistance request</span><input required placeholder="REQ-XXXXXXXX" value={trackingCode} onChange={(e) => setTrackingCode(e.target.value)} className="border border-ink-border/30 bg-paper px-3 py-2 text-sm" /></label>
           <button className="border border-ink bg-ink px-5 py-2.5 text-sm font-semibold text-paper">Check status</button>
         </form>
-        {trackedRequest && <div className="border border-verified/30 bg-verified/10 p-4 text-sm text-ink"><strong>{trackedRequest.tracking_code}</strong> is <strong>{trackedRequest.status}</strong> with {trackedRequest.category.toLowerCase()} support requested for {trackedRequest.quantity_needed}.</div>}
+        {trackedRequest && (
+          <div className="mt-4 rounded-xl border border-ink-border/40 bg-paper p-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-border/20 pb-4">
+              <div>
+                <span className="text-xs uppercase tracking-wider text-slate">Request Tracking ID</span>
+                <h4 className="font-mono text-xl font-bold text-ink">{trackedRequest.tracking_code}</h4>
+              </div>
+
+              {/* Status Badge */}
+              <div className="flex items-center gap-2">
+                {trackedRequest.dispatch_status === "MATCHED" ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3.5 py-1 text-xs font-bold text-emerald-600 border border-emerald-500/30">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
+                    MATCHED & DISPATCHED
+                  </span>
+                ) : trackedRequest.dispatch_status === "DISPATCHING" ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/15 px-3.5 py-1 text-xs font-bold text-blue-600 border border-blue-500/30">
+                    <span className="h-2 w-2 animate-ping rounded-full bg-blue-500"></span>
+                    CONTACTING SUPPLIERS...
+                  </span>
+                ) : trackedRequest.dispatch_status === "EXHAUSTED" ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/15 px-3.5 py-1 text-xs font-bold text-red-600 border border-red-500/30">
+                    <span className="h-2 w-2 rounded-full bg-red-500"></span>
+                    ESCALATED TO OPERATORS
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3.5 py-1 text-xs font-bold text-amber-600 border border-amber-500/30">
+                    <span className="h-2 w-2 rounded-full bg-amber-500"></span>
+                    {trackedRequest.status}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Matched Details / Handshake Code */}
+            {trackedRequest.dispatch_status === "MATCHED" && (
+              <div className="mt-5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-5">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <span className="text-xs font-semibold uppercase tracking-wider text-emerald-600">Assigned Provider</span>
+                    <p className="font-display text-lg font-bold text-ink">
+                      {trackedRequest.matched_provider_name || "Verified Local Responder"}
+                    </p>
+                    {trackedRequest.matched_provider_phone && (
+                      <p className="text-xs text-slate mt-0.5">
+                        Contact:{" "}
+                        <a
+                          href={`tel:${trackedRequest.matched_provider_phone}`}
+                          className="font-semibold text-emerald-600 hover:underline"
+                        >
+                          {trackedRequest.matched_provider_phone}
+                        </a>
+                      </p>
+                    )}
+                  </div>
+
+                  {trackedRequest.handshake_code && (
+                    <div className="flex flex-col items-start sm:items-end">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-emerald-600">
+                        Delivery Handshake Code
+                      </span>
+                      <div className="mt-1 rounded-md border border-emerald-500 bg-paper px-4 py-1.5 font-mono text-xl font-black tracking-widest text-emerald-600 shadow-sm">
+                        {trackedRequest.handshake_code}
+                      </div>
+                      <span className="text-[10px] text-slate mt-1">Show this code upon physical handover</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {trackedRequest.dispatch_status === "EXHAUSTED" && (
+              <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-xs text-slate">
+                <p className="font-semibold text-red-600">
+                  ⚠ All immediate automated local inventory was exhausted.
+                </p>
+                <p className="mt-1">
+                  Your request has been escalated to regional relief coordinators with top priority for manual supplier routing.
+                </p>
+              </div>
+            )}
+
+            <div className="mt-4 grid gap-3 text-xs text-slate sm:grid-cols-3">
+              <div>
+                <span className="font-medium text-ink">Category:</span> {trackedRequest.category}
+              </div>
+              <div>
+                <span className="font-medium text-ink">Quantity:</span> {trackedRequest.quantity_needed} units
+              </div>
+              <div>
+                <span className="font-medium text-ink">Priority:</span> {trackedRequest.priority}
+              </div>
+            </div>
+            {trackedRequest.description && (
+              <p className="mt-2 text-xs text-slate">
+                <span className="font-medium text-ink">Notes:</span> {trackedRequest.description}
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="mt-12 grid gap-8 md:grid-cols-2">
           <Feed title="Recent issues" loading={loading}>

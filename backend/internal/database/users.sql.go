@@ -16,11 +16,19 @@ INSERT INTO users (
     phone,
     password_hash,
     role,
-    full_name
+    full_name,
+    location
 ) VALUES (
-    $1, $2, $3, $4
+    $1, 
+    $2, 
+    $3, 
+    $4,
+    CASE 
+        WHEN $5::text != '' AND $5::text IS NOT NULL THEN ST_GeomFromText($5::text, 4326)
+        ELSE NULL
+    END
 )
-RETURNING id, phone, role, full_name, created_at
+RETURNING id, phone, role, full_name, COALESCE(ST_AsText(location), '')::text as location, created_at
 `
 
 type CreateUserParams struct {
@@ -28,6 +36,7 @@ type CreateUserParams struct {
 	PasswordHash string
 	Role         UserRole
 	FullName     string
+	Location     string
 }
 
 type CreateUserRow struct {
@@ -35,6 +44,7 @@ type CreateUserRow struct {
 	Phone     string
 	Role      UserRole
 	FullName  string
+	Location  string
 	CreatedAt pgtype.Timestamptz
 }
 
@@ -44,6 +54,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateU
 		arg.PasswordHash,
 		arg.Role,
 		arg.FullName,
+		arg.Location,
 	)
 	var i CreateUserRow
 	err := row.Scan(
@@ -51,13 +62,14 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateU
 		&i.Phone,
 		&i.Role,
 		&i.FullName,
+		&i.Location,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, phone, role, full_name, created_at
+SELECT id, phone, role, full_name, COALESCE(ST_AsText(location), '')::text as location, created_at
 FROM users
 WHERE id = $1
 `
@@ -67,6 +79,7 @@ type GetUserByIDRow struct {
 	Phone     string
 	Role      UserRole
 	FullName  string
+	Location  string
 	CreatedAt pgtype.Timestamptz
 }
 
@@ -78,26 +91,38 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDR
 		&i.Phone,
 		&i.Role,
 		&i.FullName,
+		&i.Location,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getUserByPhone = `-- name: GetUserByPhone :one
-SELECT id, phone, password_hash, role, full_name, created_at
+SELECT id, phone, password_hash, role, full_name, COALESCE(ST_AsText(location), '')::text as location, created_at
 FROM users
 WHERE phone = $1
 `
 
-func (q *Queries) GetUserByPhone(ctx context.Context, phone string) (User, error) {
+type GetUserByPhoneRow struct {
+	ID           pgtype.UUID
+	Phone        string
+	PasswordHash string
+	Role         UserRole
+	FullName     string
+	Location     string
+	CreatedAt    pgtype.Timestamptz
+}
+
+func (q *Queries) GetUserByPhone(ctx context.Context, phone string) (GetUserByPhoneRow, error) {
 	row := q.db.QueryRow(ctx, getUserByPhone, phone)
-	var i User
+	var i GetUserByPhoneRow
 	err := row.Scan(
 		&i.ID,
 		&i.Phone,
 		&i.PasswordHash,
 		&i.Role,
 		&i.FullName,
+		&i.Location,
 		&i.CreatedAt,
 	)
 	return i, err

@@ -118,6 +118,17 @@ func (h *APIHandler) CreateResource(w http.ResponseWriter, r *http.Request) {
 		req.CurrentCapacity = req.TotalCapacity
 	}
 
+	var embVector pgvector.Vector
+	if h.mlClient != nil {
+		embedTarget := req.Title
+		if req.Description != "" {
+			embedTarget = fmt.Sprintf("%s - %s", req.Title, req.Description)
+		}
+		if floats, embErr := h.mlClient.GenerateEmbedding(r.Context(), embedTarget); embErr == nil && len(floats) > 0 {
+			embVector = pgvector.NewVector(floats)
+		}
+	}
+
 	resource, err := h.queries.CreateResource(r.Context(), database.CreateResourceParams{
 		ProviderID:      pgtype.UUID{Bytes: providerUUID, Valid: true},
 		Title:           req.Title,
@@ -130,11 +141,23 @@ func (h *APIHandler) CreateResource(w http.ResponseWriter, r *http.Request) {
 		Location:        location,
 		ContactPhone:    textToPgText(req.ContactPhone),
 		ImageUrl:        textToPgText(req.ImageUrl),
-		Embedding:       pgvector.Vector{},
+		Embedding:       embVector,
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create resource: %v", err))
 		return
+	}
+
+	if h.mlClient != nil {
+		_ = h.mlClient.UpsertResource(r.Context(),
+			uuid.UUID(resource.ID.Bytes).String(),
+			resource.Title,
+			string(resource.Category),
+			map[string]interface{}{
+				"provider_id": uuid.UUID(resource.ProviderID.Bytes).String(),
+				"capacity":    resource.CurrentCapacity,
+			},
+		)
 	}
 
 	respondWithJSON(w, http.StatusCreated, ResourceResponse{

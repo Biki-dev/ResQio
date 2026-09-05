@@ -1,9 +1,12 @@
 import type {
+  ActivePing,
   AuthResponse,
   AssistanceRequestResponse,
   DisasterReportResponse,
+  ExhaustedAlert,
   LoginProviderRequest,
   LoginUserRequest,
+  MatchResponse,
   MutualAidItemRequest,
   MutualAidItemResponse,
   Provider,
@@ -385,4 +388,25 @@ export async function uploadPhotoWithMulter(file: File): Promise<ApiResult<{ url
     };
   }
 }
+
+export function getActiveProviderPing() {
+  return request<{ ping: ActivePing | null }>("/provider/pings/active");
+}
+
+export function acceptDispatchPing(pingId: string) {
+  return request<MatchResponse>(`/provider/pings/${encodeURIComponent(pingId)}/accept`, {
+    method: "POST",
+  });
+}
+
+export function rejectDispatchPing(pingId: string) {
+  return request<{ message: string }>(`/provider/pings/${encodeURIComponent(pingId)}/reject`, {
+    method: "POST",
+  });
+}
+
+export function getAdminAlerts() {
+  return request<{ alerts: ExhaustedAlert[]; total: number }>("/admin/alerts");
+}
+
 

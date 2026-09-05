@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -18,29 +19,38 @@ import (
 	"go-sse-server/internal/auth"
 	"go-sse-server/internal/config"
 	"go-sse-server/internal/database"
+	"go-sse-server/internal/dispatch"
 	"go-sse-server/internal/middleware"
+	"go-sse-server/internal/ml"
 )
 
 type APIHandler struct {
-	queries *database.Queries
-	pool    *pgxpool.Pool
-	cfg     *config.Config
+	queries     *database.Queries
+	pool        *pgxpool.Pool
+	cfg         *config.Config
+	coordinator *dispatch.Coordinator
+	mlClient    *ml.Client
 }
 
-func NewAPIHandler(queries *database.Queries, pool *pgxpool.Pool, cfg *config.Config) *APIHandler {
+func NewAPIHandler(queries *database.Queries, pool *pgxpool.Pool, cfg *config.Config, coordinator *dispatch.Coordinator, mlClient *ml.Client) *APIHandler {
 	return &APIHandler{
-		queries: queries,
-		pool:    pool,
-		cfg:     cfg,
+		queries:     queries,
+		pool:        pool,
+		cfg:         cfg,
+		coordinator: coordinator,
+		mlClient:    mlClient,
 	}
 }
 
 // User DTOs
 type UserRegisterRequest struct {
-	Phone    string `json:"phone"`
-	Password string `json:"password"`
-	Role     string `json:"role,omitempty"`
-	FullName string `json:"full_name"`
+	Phone     string   `json:"phone"`
+	Password  string   `json:"password"`
+	Role      string   `json:"role,omitempty"`
+	FullName  string   `json:"full_name"`
+	Location  string   `json:"location,omitempty"`
+	Latitude  *float64 `json:"latitude,omitempty"`
+	Longitude *float64 `json:"longitude,omitempty"`
 }
 
 type UserLoginRequest struct {
@@ -53,6 +63,7 @@ type UserResponse struct {
 	Phone     string    `json:"phone"`
 	Role      string    `json:"role"`
 	FullName  string    `json:"full_name"`
+	Location  string    `json:"location,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -145,11 +156,17 @@ func (h *APIHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userLocation := strings.TrimSpace(req.Location)
+	if userLocation == "" && req.Latitude != nil && req.Longitude != nil {
+		userLocation = fmt.Sprintf("POINT(%.6f %.6f)", *req.Longitude, *req.Latitude)
+	}
+
 	userRow, err := h.queries.CreateUser(r.Context(), database.CreateUserParams{
 		Phone:        req.Phone,
 		PasswordHash: hashedPassword,
 		Role:         role,
 		FullName:     req.FullName,
+		Location:     userLocation,
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -157,6 +174,7 @@ func (h *APIHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 			respondWithError(w, http.StatusConflict, "A user with this phone number already exists")
 			return
 		}
+		log.Printf("[UserRegister] Failed to create user: %v", err)
 		respondWithError(w, http.StatusInternalServerError, "Failed to create user")
 		return
 	}
@@ -181,6 +199,7 @@ func (h *APIHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		Phone:     userRow.Phone,
 		Role:      string(userRow.Role),
 		FullName:  userRow.FullName,
+		Location:  userRow.Location,
 		CreatedAt: userRow.CreatedAt.Time,
 	}
 
@@ -241,6 +260,7 @@ func (h *APIHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 		Phone:     user.Phone,
 		Role:      string(user.Role),
 		FullName:  user.FullName,
+		Location:  user.Location,
 		CreatedAt: user.CreatedAt.Time,
 	}
 
@@ -279,6 +299,7 @@ func (h *APIHandler) GetUserMe(w http.ResponseWriter, r *http.Request) {
 		Phone:     user.Phone,
 		Role:      string(user.Role),
 		FullName:  user.FullName,
+		Location:  user.Location,
 		CreatedAt: user.CreatedAt.Time,
 	})
 }

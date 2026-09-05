@@ -3,27 +3,37 @@
 import { useEffect, useState, type FormEvent, type ChangeEvent } from "react";
 import PageHeader from "@/components/PageHeader";
 import {
+  acceptDispatchPing,
   clearSession,
   createResource,
   deleteResource,
+  getActiveProviderPing,
   getProviderMe,
   getProviderResources,
   getSession,
+  rejectDispatchPing,
   type SessionData,
   updateResource,
   uploadPhotoWithMulter,
 } from "@/lib/api";
-import type { Provider, ResourceResponse } from "@/types";
+import type { ActivePing, MatchResponse, Provider, ResourceResponse } from "@/types";
 import {
+  AlertTriangle,
+  Bell,
   Building2,
+  Check,
   CheckCircle2,
+  Clock,
+  Copy,
   Edit2,
   Image as ImageIcon,
   Loader2,
   LogOut,
+  MapPin,
   Package,
   PlusCircle,
   RefreshCw,
+  ShieldCheck,
   Trash2,
   Upload,
   X,
@@ -71,6 +81,13 @@ export default function ProviderPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Real-time dispatch ping & match state
+  const [activePing, setActivePing] = useState<ActivePing | null>(null);
+  const [activeMatch, setActiveMatch] = useState<MatchResponse | null>(null);
+  const [remainingSecs, setRemainingSecs] = useState<number>(0);
+  const [respondingPing, setRespondingPing] = useState(false);
+  const [copiedHandshake, setCopiedHandshake] = useState(false);
+
   // Edit modal state
   const [editingItem, setEditingItem] = useState<ResourceResponse | null>(null);
   const [editForm, setEditForm] = useState<ProductFormState>(INITIAL_FORM);
@@ -88,6 +105,47 @@ export default function ProviderPage() {
     setSession(currentSession);
     loadProviderData(currentSession);
   }, []);
+
+  // Poll for incoming emergency dispatch pings
+  useEffect(() => {
+    if (!session || session.accountType !== "provider") return;
+
+    let mounted = true;
+    async function checkPing() {
+      const res = await getActiveProviderPing();
+      if (!mounted) return;
+      if (res.success && res.data.ping) {
+        setActivePing(res.data.ping);
+        setRemainingSecs(res.data.ping.remaining_seconds);
+      } else {
+        setActivePing(null);
+      }
+    }
+
+    void checkPing();
+    const interval = setInterval(checkPing, 4000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [session]);
+
+  // Local second-by-second countdown timer
+  useEffect(() => {
+    if (!activePing || remainingSecs <= 0) return;
+
+    const timer = setInterval(() => {
+      setRemainingSecs((prev) => {
+        if (prev <= 1) {
+          setActivePing(null);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [activePing, remainingSecs]);
 
   async function loadProviderData(currentSession: SessionData) {
     setLoading(true);
@@ -264,6 +322,51 @@ export default function ProviderPage() {
     }
   }
 
+  async function handleAcceptPing(pingId: string) {
+    setRespondingPing(true);
+    try {
+      const res = await acceptDispatchPing(pingId);
+      if (res.success) {
+        setActiveMatch(res.data);
+        setActivePing(null);
+        setMessage("Emergency dispatch accepted! Provide the handshake code upon physical delivery.");
+        if (session?.accountId) {
+          const refreshResult = await getProviderResources(session.accountId);
+          if (refreshResult.success) setItems(refreshResult.data);
+        }
+      } else {
+        setError(res.error);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to accept ping");
+    } finally {
+      setRespondingPing(false);
+    }
+  }
+
+  async function handleRejectPing(pingId: string) {
+    setRespondingPing(true);
+    try {
+      const res = await rejectDispatchPing(pingId);
+      if (res.success) {
+        setActivePing(null);
+        setMessage("Ping declined. Request automatically cascaded to the next nearest provider.");
+      } else {
+        setError(res.error);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to decline ping");
+    } finally {
+      setRespondingPing(false);
+    }
+  }
+
+  function formatTime(seconds: number) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+  }
+
   function signOut() {
     clearSession();
     window.location.href = "/login";
@@ -318,6 +421,147 @@ export default function ProviderPage() {
             Sign out
           </button>
         </div>
+
+        {/* ACTIVE MATCH CONFIRMED MODAL / BANNER */}
+        {activeMatch && (
+          <div className="mt-8 rounded-xl border-2 border-emerald-500/80 bg-emerald-950/20 p-6 shadow-xl">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
+                  <ShieldCheck className="h-6 w-6" />
+                </span>
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                    Dispatch Match Confirmed & Active
+                  </span>
+                  <h2 className="text-xl font-bold text-ink">Assistance Order Assigned to You</h2>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveMatch(null)}
+                className="rounded p-1 text-slate hover:bg-paper-dim hover:text-ink"
+                title="Dismiss banner"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-5 rounded-lg border border-emerald-500/30 bg-paper p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate">
+                Recipient Handshake Verification Code
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-4">
+                <div className="rounded-lg border border-emerald-500/60 bg-emerald-500/10 px-6 py-2.5 font-mono text-3xl font-extrabold tracking-[0.25em] text-emerald-500">
+                  {activeMatch.handshake_code}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(activeMatch.handshake_code);
+                    setCopiedHandshake(true);
+                    setTimeout(() => setCopiedHandshake(false), 2000);
+                  }}
+                  className="flex items-center gap-1.5 rounded border border-ink-border/40 bg-paper px-3 py-2 text-xs font-semibold text-ink hover:bg-paper-dim"
+                >
+                  {copiedHandshake ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                  <span>{copiedHandshake ? "Copied!" : "Copy Code"}</span>
+                </button>
+              </div>
+              <p className="mt-3 text-xs text-slate">
+                Share this 6-character code with the victim or field responder upon physical handover to authenticate fulfillment.
+              </p>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setActiveMatch(null)}
+                className="rounded bg-emerald-600 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-500"
+              >
+                Acknowledge & Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* INCOMING EMERGENCY DISPATCH PING OFFER */}
+        {activePing && (
+          <div className="mt-8 rounded-xl border-2 border-amber-500 bg-amber-950/15 p-6 shadow-2xl transition-all">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="relative flex h-4 w-4">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex h-4 w-4 rounded-full bg-red-500"></span>
+                </span>
+                <span className="flex items-center gap-1 text-xs font-extrabold uppercase tracking-wider text-amber-500">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  Urgent Proximity Match Offer
+                </span>
+                <span className="rounded bg-ink/10 px-2 py-0.5 text-xs font-mono font-medium text-ink">
+                  {activePing.tracking_code}
+                </span>
+              </div>
+
+              {/* Countdown Timer */}
+              <div className="flex items-center gap-2 rounded-full border border-amber-500/50 bg-amber-500/10 px-4 py-1 text-xs font-mono font-bold text-amber-500">
+                <Clock className="h-4 w-4 animate-spin text-amber-500" />
+                <span>{formatTime(remainingSecs)} remaining to respond</span>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 rounded-lg border border-amber-500/30 bg-paper p-5 sm:grid-cols-3">
+              <div>
+                <span className="text-xs uppercase tracking-wide text-slate">Requested Resource</span>
+                <p className="mt-1 font-display text-lg font-bold text-ink">
+                  {activePing.quantity_needed} units · {activePing.category}
+                </p>
+              </div>
+
+              <div>
+                <span className="text-xs uppercase tracking-wide text-slate">Estimated Proximity</span>
+                <p className="mt-1 flex items-center gap-1 text-sm font-semibold text-emerald-600">
+                  <MapPin className="h-4 w-4 text-emerald-600" />
+                  <span>{activePing.distance_km} km away ({activePing.distance_meters}m)</span>
+                </p>
+              </div>
+
+              <div>
+                <span className="text-xs uppercase tracking-wide text-slate">Delivery Location</span>
+                <p className="mt-1 text-sm font-medium text-ink line-clamp-2">
+                  {activePing.address_text || "Coordinates specified in emergency area"}
+                </p>
+              </div>
+            </div>
+
+            {activePing.description && (
+              <div className="mt-3 text-xs text-slate">
+                <span className="font-semibold text-ink">Urgency Notes:</span> {activePing.description}
+              </div>
+            )}
+
+            <div className="mt-6 flex flex-wrap items-center gap-4">
+              <button
+                type="button"
+                disabled={respondingPing}
+                onClick={() => handleAcceptPing(activePing.ping_id)}
+                className="flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg transition hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {respondingPing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                <span>Accept & Dispatch</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={respondingPing}
+                onClick={() => handleRejectPing(activePing.ping_id)}
+                className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-paper px-4 py-2.5 text-sm font-semibold text-alert transition hover:bg-red-500/10 disabled:opacity-50"
+              >
+                <X className="h-4 w-4" />
+                <span>Decline (Cascade to Next Provider)</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Notification alerts */}
         {message && (

@@ -109,9 +109,28 @@ FROM providers
 WHERE email = $1
 `
 
-func (q *Queries) GetProviderByEmail(ctx context.Context, email string) (Provider, error) {
+type GetProviderByEmailRow struct {
+	ID               pgtype.UUID
+	Type             ProviderType
+	AuthorizedPerson pgtype.Text
+	Name             string
+	PasswordHash     string
+	RegistrationNo   pgtype.Text
+	GovtID           string
+	Cin              pgtype.Text
+	Email            string
+	PhNo             string
+	Website          pgtype.Text
+	State            string
+	Dist             string
+	Location         string
+	LastUpdatedAt    pgtype.Timestamptz
+	CreatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) GetProviderByEmail(ctx context.Context, email string) (GetProviderByEmailRow, error) {
 	row := q.db.QueryRow(ctx, getProviderByEmail, email)
-	var i Provider
+	var i GetProviderByEmailRow
 	err := row.Scan(
 		&i.ID,
 		&i.Type,
@@ -186,9 +205,28 @@ FROM providers
 WHERE ph_no = $1
 `
 
-func (q *Queries) GetProviderByPhone(ctx context.Context, phNo string) (Provider, error) {
+type GetProviderByPhoneRow struct {
+	ID               pgtype.UUID
+	Type             ProviderType
+	AuthorizedPerson pgtype.Text
+	Name             string
+	PasswordHash     string
+	RegistrationNo   pgtype.Text
+	GovtID           string
+	Cin              pgtype.Text
+	Email            string
+	PhNo             string
+	Website          pgtype.Text
+	State            string
+	Dist             string
+	Location         string
+	LastUpdatedAt    pgtype.Timestamptz
+	CreatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) GetProviderByPhone(ctx context.Context, phNo string) (GetProviderByPhoneRow, error) {
 	row := q.db.QueryRow(ctx, getProviderByPhone, phNo)
-	var i Provider
+	var i GetProviderByPhoneRow
 	err := row.Scan(
 		&i.ID,
 		&i.Type,

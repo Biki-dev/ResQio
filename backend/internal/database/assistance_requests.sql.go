@@ -16,7 +16,7 @@ const assignCoordinatorToAssistanceRequest = `-- name: AssignCoordinatorToAssist
 UPDATE assistance_requests
 SET assigned_coordinator_id = $2, status = 'IN_PROGRESS', updated_at = NOW()
 WHERE id = $1
-RETURNING id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at
+RETURNING id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at, priority_score, yolo_score, yolo_detections, cluster_id, cluster_size, medical_emergency, water_food_urgency, vulnerable_individuals_present, property_damage_only, is_identity_verified, is_location_verified, dispatch_status, matched_provider_id, matched_at
 `
 
 type AssignCoordinatorToAssistanceRequestParams struct {
@@ -44,6 +44,20 @@ func (q *Queries) AssignCoordinatorToAssistanceRequest(ctx context.Context, arg 
 		&i.Embedding,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PriorityScore,
+		&i.YoloScore,
+		&i.YoloDetections,
+		&i.ClusterID,
+		&i.ClusterSize,
+		&i.MedicalEmergency,
+		&i.WaterFoodUrgency,
+		&i.VulnerableIndividualsPresent,
+		&i.PropertyDamageOnly,
+		&i.IsIdentityVerified,
+		&i.IsLocationVerified,
+		&i.DispatchStatus,
+		&i.MatchedProviderID,
+		&i.MatchedAt,
 	)
 	return i, err
 }
@@ -65,7 +79,7 @@ INSERT INTO assistance_requests (
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 )
-RETURNING id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at
+RETURNING id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at, priority_score, yolo_score, yolo_detections, cluster_id, cluster_size, medical_emergency, water_food_urgency, vulnerable_individuals_present, property_damage_only, is_identity_verified, is_location_verified, dispatch_status, matched_provider_id, matched_at
 `
 
 type CreateAssistanceRequestParams struct {
@@ -116,12 +130,26 @@ func (q *Queries) CreateAssistanceRequest(ctx context.Context, arg CreateAssista
 		&i.Embedding,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PriorityScore,
+		&i.YoloScore,
+		&i.YoloDetections,
+		&i.ClusterID,
+		&i.ClusterSize,
+		&i.MedicalEmergency,
+		&i.WaterFoodUrgency,
+		&i.VulnerableIndividualsPresent,
+		&i.PropertyDamageOnly,
+		&i.IsIdentityVerified,
+		&i.IsLocationVerified,
+		&i.DispatchStatus,
+		&i.MatchedProviderID,
+		&i.MatchedAt,
 	)
 	return i, err
 }
 
 const getAssistanceRequestByID = `-- name: GetAssistanceRequestByID :one
-SELECT id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at FROM assistance_requests
+SELECT id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at, priority_score, yolo_score, yolo_detections, cluster_id, cluster_size, medical_emergency, water_food_urgency, vulnerable_individuals_present, property_damage_only, is_identity_verified, is_location_verified, dispatch_status, matched_provider_id, matched_at FROM assistance_requests
 WHERE id = $1 LIMIT 1
 `
 
@@ -145,12 +173,26 @@ func (q *Queries) GetAssistanceRequestByID(ctx context.Context, id pgtype.UUID) 
 		&i.Embedding,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PriorityScore,
+		&i.YoloScore,
+		&i.YoloDetections,
+		&i.ClusterID,
+		&i.ClusterSize,
+		&i.MedicalEmergency,
+		&i.WaterFoodUrgency,
+		&i.VulnerableIndividualsPresent,
+		&i.PropertyDamageOnly,
+		&i.IsIdentityVerified,
+		&i.IsLocationVerified,
+		&i.DispatchStatus,
+		&i.MatchedProviderID,
+		&i.MatchedAt,
 	)
 	return i, err
 }
 
 const getAssistanceRequestByTrackingCode = `-- name: GetAssistanceRequestByTrackingCode :one
-SELECT id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at FROM assistance_requests
+SELECT id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at, priority_score, yolo_score, yolo_detections, cluster_id, cluster_size, medical_emergency, water_food_urgency, vulnerable_individuals_present, property_damage_only, is_identity_verified, is_location_verified, dispatch_status, matched_provider_id, matched_at FROM assistance_requests
 WHERE tracking_code = $1 LIMIT 1
 `
 
@@ -174,12 +216,26 @@ func (q *Queries) GetAssistanceRequestByTrackingCode(ctx context.Context, tracki
 		&i.Embedding,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PriorityScore,
+		&i.YoloScore,
+		&i.YoloDetections,
+		&i.ClusterID,
+		&i.ClusterSize,
+		&i.MedicalEmergency,
+		&i.WaterFoodUrgency,
+		&i.VulnerableIndividualsPresent,
+		&i.PropertyDamageOnly,
+		&i.IsIdentityVerified,
+		&i.IsLocationVerified,
+		&i.DispatchStatus,
+		&i.MatchedProviderID,
+		&i.MatchedAt,
 	)
 	return i, err
 }
 
 const listAssistanceRequests = `-- name: ListAssistanceRequests :many
-SELECT id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at FROM assistance_requests
+SELECT id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at, priority_score, yolo_score, yolo_detections, cluster_id, cluster_size, medical_emergency, water_food_urgency, vulnerable_individuals_present, property_damage_only, is_identity_verified, is_location_verified, dispatch_status, matched_provider_id, matched_at FROM assistance_requests
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
 `
@@ -215,6 +271,20 @@ func (q *Queries) ListAssistanceRequests(ctx context.Context, arg ListAssistance
 			&i.Embedding,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PriorityScore,
+			&i.YoloScore,
+			&i.YoloDetections,
+			&i.ClusterID,
+			&i.ClusterSize,
+			&i.MedicalEmergency,
+			&i.WaterFoodUrgency,
+			&i.VulnerableIndividualsPresent,
+			&i.PropertyDamageOnly,
+			&i.IsIdentityVerified,
+			&i.IsLocationVerified,
+			&i.DispatchStatus,
+			&i.MatchedProviderID,
+			&i.MatchedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -227,7 +297,7 @@ func (q *Queries) ListAssistanceRequests(ctx context.Context, arg ListAssistance
 }
 
 const listAssistanceRequestsByRequester = `-- name: ListAssistanceRequestsByRequester :many
-SELECT id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at FROM assistance_requests
+SELECT id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at, priority_score, yolo_score, yolo_detections, cluster_id, cluster_size, medical_emergency, water_food_urgency, vulnerable_individuals_present, property_damage_only, is_identity_verified, is_location_verified, dispatch_status, matched_provider_id, matched_at FROM assistance_requests
 WHERE requester_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -265,6 +335,20 @@ func (q *Queries) ListAssistanceRequestsByRequester(ctx context.Context, arg Lis
 			&i.Embedding,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PriorityScore,
+			&i.YoloScore,
+			&i.YoloDetections,
+			&i.ClusterID,
+			&i.ClusterSize,
+			&i.MedicalEmergency,
+			&i.WaterFoodUrgency,
+			&i.VulnerableIndividualsPresent,
+			&i.PropertyDamageOnly,
+			&i.IsIdentityVerified,
+			&i.IsLocationVerified,
+			&i.DispatchStatus,
+			&i.MatchedProviderID,
+			&i.MatchedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -280,7 +364,7 @@ const updateAssistanceRequestStatus = `-- name: UpdateAssistanceRequestStatus :o
 UPDATE assistance_requests
 SET status = $2, updated_at = NOW()
 WHERE id = $1
-RETURNING id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at
+RETURNING id, requester_id, tracking_code, category, quantity_needed, description, priority, status, assigned_coordinator_id, location, address_text, contact_phone_encrypted, requester_name_encrypted, embedding, created_at, updated_at, priority_score, yolo_score, yolo_detections, cluster_id, cluster_size, medical_emergency, water_food_urgency, vulnerable_individuals_present, property_damage_only, is_identity_verified, is_location_verified, dispatch_status, matched_provider_id, matched_at
 `
 
 type UpdateAssistanceRequestStatusParams struct {
@@ -308,6 +392,20 @@ func (q *Queries) UpdateAssistanceRequestStatus(ctx context.Context, arg UpdateA
 		&i.Embedding,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PriorityScore,
+		&i.YoloScore,
+		&i.YoloDetections,
+		&i.ClusterID,
+		&i.ClusterSize,
+		&i.MedicalEmergency,
+		&i.WaterFoodUrgency,
+		&i.VulnerableIndividualsPresent,
+		&i.PropertyDamageOnly,
+		&i.IsIdentityVerified,
+		&i.IsLocationVerified,
+		&i.DispatchStatus,
+		&i.MatchedProviderID,
+		&i.MatchedAt,
 	)
 	return i, err
 }

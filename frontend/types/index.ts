@@ -18,6 +18,7 @@ export interface User {
   password_hash?: string;
   role: UserRole | string;
   full_name: string;
+  location?: string;
   created_at?: string;
 }
 
@@ -26,6 +27,9 @@ export interface RegisterUserRequest {
   phone: string;
   password: string;
   role?: UserRole | string;
+  location?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface LoginUserRequest {
@@ -155,11 +159,54 @@ export interface AssistanceRequestResponse {
   description: string;
   priority: RequestPriority | string;
   status: RequestStatus | string;
+  dispatch_status?: string;
+  matched_provider_id?: string;
+  matched_provider_name?: string;
+  matched_provider_phone?: string;
+  handshake_code?: string;
   assigned_coordinator_id?: string;
   location: string;
   address_text: string;
   requester_name: string;
   contact_phone: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ActivePing {
+  ping_id: string;
+  request_id: string;
+  tracking_code: string;
+  category: string;
+  quantity_needed: number;
+  description: string;
+  address_text: string;
+  distance_meters: number;
+  distance_km: number;
+  expires_at: string;
+  remaining_seconds: number;
+  created_at: string;
+}
+
+export interface MatchResponse {
+  match_id: string;
+  request_id: string;
+  provider_id: string;
+  handshake_code: string;
+  status: string;
+  created_at: string;
+}
+
+export interface ExhaustedAlert {
+  id: string;
+  tracking_code: string;
+  category: string;
+  quantity_needed: number;
+  description: string;
+  priority: string;
+  status: string;
+  dispatch_status: string;
+  address_text: string;
   created_at: string;
   updated_at: string;
 }
