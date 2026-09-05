@@ -1,4 +1,4 @@
-DB_URL ?= postgres://localhost:5432/auth_db?sslmode=disable
+DB_URL ?= postgres://resqio_user:resqio_password@localhost:5433/auth_db?sslmode=disable
 
 .PHONY: help sqlc migrate-up migrate-down migrate-status run test build
 

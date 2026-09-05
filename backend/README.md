@@ -8,12 +8,15 @@ This guide provides end-to-end instructions for connecting the **Go REST Backend
 
 ### Step 1: Start the Backend Server
 ```bash
+# From the repository root, start the local PostGIS database.
+docker compose up -d --wait db
+
 cd backend
 
-# 1. Run migrations to initialize PostgreSQL tables & PostGIS/pgvector extensions
+# Run migrations to initialize PostgreSQL tables and extensions
 make migrate-up
 
-# 2. Start the Go HTTP server (runs on port 8080 by default)
+# Start the Go HTTP server (runs on port 8080 by default)
 make run
 ```
 *Health Check*: Verify server is running by opening `http://localhost:8080/healthz` in your browser.
