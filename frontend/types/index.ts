@@ -285,3 +285,31 @@ export interface ResourceResponse extends ResourceRequest {
   last_updated_at: string;
   created_at: string;
 }
+
+export interface DistributionCamp {
+  id: string;
+  provider_id: string;
+  provider_name: string;
+  camp_name: string;
+  address_text: string;
+  items_available: string;
+  distribution_start: string;
+  distribution_end: string;
+  contact_phone: string;
+  latitude: number;
+  longitude: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DistributionCampRequest {
+  camp_name: string;
+  address_text: string;
+  items_available: string;
+  distribution_start: string;
+  distribution_end: string;
+  contact_phone?: string;
+  latitude: number;
+  longitude: number;
+}

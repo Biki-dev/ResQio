@@ -3,6 +3,8 @@ import type {
   AuthResponse,
   AssistanceRequestResponse,
   DisasterReportResponse,
+  DistributionCamp,
+  DistributionCampRequest,
   ExhaustedAlert,
   LoginProviderRequest,
   LoginUserRequest,
@@ -327,6 +329,30 @@ export function claimMutualAid(id: string) {
 export function getResources(limit = 20, offset = 0, category?: string) {
   const categoryParam = category ? `&category=${encodeURIComponent(category)}` : "";
   return request<ResourceResponse[]>(`/resources?limit=${limit}&offset=${offset}${categoryParam}`);
+}
+
+export function getDistributionCamps(limit = 100) {
+  return request<DistributionCamp[]>(`/distribution-camps?limit=${limit}`);
+}
+
+export function createDistributionCamp(payload: DistributionCampRequest) {
+  return request<DistributionCamp, DistributionCampRequest>("/provider/distribution-camps", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function updateDistributionCamp(id: string, payload: DistributionCampRequest) {
+  return request<DistributionCamp, DistributionCampRequest>(`/provider/distribution-camps/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: payload,
+  });
+}
+
+export function deleteDistributionCamp(id: string) {
+  return request<{ message: string }>(`/provider/distribution-camps/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }
 
 export function getProviderResources(providerId: string, limit = 50, offset = 0) {

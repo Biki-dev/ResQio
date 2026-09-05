@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
+import { ExternalLink, MapPin } from "lucide-react";
 import {
   getAssistanceRequests,
+  getDistributionCamps,
   getMutualAidItems,
   getResources,
   getRoadHazards,
@@ -16,6 +18,7 @@ import {
 } from "@/lib/api";
 import type {
   AssistanceRequestResponse,
+  DistributionCamp,
   MutualAidItemResponse,
   ResourceResponse,
   RoadHazardResponse,
@@ -56,6 +59,7 @@ export default function ResponsePortal() {
   const [requests, setRequests] = useState<AssistanceRequestResponse[]>([]);
   const [aidItems, setAidItems] = useState<MutualAidItemResponse[]>([]);
   const [resources, setResources] = useState<ResourceResponse[]>([]);
+  const [camps, setCamps] = useState<DistributionCamp[]>([]);
   const [issue, setIssue] = useState(initialIssue);
   const [issuePhoto, setIssuePhoto] = useState<File | null>(null);
   const [need, setNeed] = useState(initialNeed);
@@ -67,16 +71,18 @@ export default function ResponsePortal() {
 
   async function refreshFeeds() {
     setLoading(true);
-    const [issueResult, requestResult, aidResult, resourceResult] = await Promise.all([
+    const [issueResult, requestResult, aidResult, resourceResult, campResult] = await Promise.all([
       getRoadHazards(),
       getAssistanceRequests(),
       getMutualAidItems(),
       getResources(),
+      getDistributionCamps(),
     ]);
     if (issueResult.success) setIssues(issueResult.data);
     if (requestResult.success) setRequests(requestResult.data);
     if (aidResult.success) setAidItems(aidResult.data);
     if (resourceResult.success) setResources(resourceResult.data);
+    if (campResult.success) setCamps(campResult.data);
     setLoading(false);
   }
 
@@ -186,6 +192,34 @@ export default function ResponsePortal() {
             Share your location so nearby responders can act quickly. You can submit anonymously and track a request with its code.
           </p>
         </div>
+
+        <section className="mb-10" aria-labelledby="help-centers-title">
+          <div className="flex flex-col gap-2 border-b border-ink-border/25 pb-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-signal-dark">Public aid network</p>
+              <h2 id="help-centers-title" className="mt-1 font-display text-2xl text-ink">Nearby help centers</h2>
+              <p className="mt-1 text-sm text-slate">Find food, clothing, water, and other supplies currently distributed by verified organizations.</p>
+            </div>
+            <span className="text-xs text-slate">{camps.length} active location{camps.length === 1 ? "" : "s"}</span>
+          </div>
+          {camps.length === 0 ? (
+            <div className="mt-5 border border-dashed border-ink-border/40 bg-paper px-5 py-8 text-center text-sm text-slate">No public distribution centers have been published yet.</div>
+          ) : (
+            <div className="mt-5 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {camps.map((camp) => (
+                <article key={camp.id} className="border border-ink-border/25 bg-paper p-5 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div><span className="text-[10px] font-bold uppercase tracking-wider text-verified">Verified aid center</span><h3 className="mt-1 font-display text-lg font-bold text-ink">{camp.camp_name}</h3></div>
+                    <MapPin className="h-5 w-5 flex-shrink-0 text-signal-dark" />
+                  </div>
+                  <p className="mt-3 text-sm text-ink">{camp.items_available}</p>
+                  <dl className="mt-4 space-y-2 text-xs text-slate"><div><dt className="font-semibold text-ink">NGO</dt><dd>{camp.provider_name}</dd></div><div><dt className="font-semibold text-ink">Location</dt><dd>{camp.address_text}</dd></div><div><dt className="font-semibold text-ink">Distribution hours</dt><dd>{camp.distribution_start.slice(0, 5)} - {camp.distribution_end.slice(0, 5)}</dd></div>{camp.contact_phone && <div><dt className="font-semibold text-ink">Contact</dt><dd>{camp.contact_phone}</dd></div>}</dl>
+                  <a href={`https://www.openstreetmap.org/?mlat=${camp.latitude}&mlon=${camp.longitude}#map=17/${camp.latitude}/${camp.longitude}`} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-signal-dark underline underline-offset-2"><ExternalLink className="h-3.5 w-3.5" /> Open location</a>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
 
         <div className="grid gap-6 lg:grid-cols-2">
           <form onSubmit={handleIssueSubmit} className="border border-ink-border/25 bg-paper p-6">

@@ -7,6 +7,9 @@ import {
   acceptDispatchPing,
   clearSession,
   createResource,
+  createDistributionCamp,
+  getDistributionCamps,
+  deleteDistributionCamp,
   deleteResource,
   getActiveProviderPing,
   getProviderMe,
@@ -16,9 +19,10 @@ import {
   rejectDispatchPing,
   type SessionData,
   updateResource,
+  updateDistributionCamp,
   uploadPhotoWithMulter,
 } from "@/lib/api";
-import type { ActivePing, MatchResponse, Provider, ProviderAssistanceRequest, ResourceResponse } from "@/types";
+import type { ActivePing, DistributionCamp, MatchResponse, Provider, ProviderAssistanceRequest, ResourceResponse } from "@/types";
 import {
   AlertTriangle,
   Bell,
@@ -46,6 +50,11 @@ const ProviderRequestMap = dynamic(() => import("@/components/ProviderRequestMap
   loading: () => <div className="h-[420px] animate-pulse bg-paper-dim" />,
 });
 
+const CampLocationPicker = dynamic(() => import("@/components/CampLocationPicker"), {
+  ssr: false,
+  loading: () => <div className="h-64 animate-pulse bg-paper-dim" />,
+});
+
 const CATEGORIES = [
   "FOOD",
   "WATER",
@@ -66,6 +75,28 @@ interface ProductFormState {
   image_url: string;
 }
 
+interface CampFormState {
+  camp_name: string;
+  address_text: string;
+  items_available: string;
+  distribution_start: string;
+  distribution_end: string;
+  contact_phone: string;
+  latitude: string;
+  longitude: string;
+}
+
+const INITIAL_CAMP_FORM: CampFormState = {
+  camp_name: "",
+  address_text: "",
+  items_available: "",
+  distribution_start: "09:00",
+  distribution_end: "17:00",
+  contact_phone: "",
+  latitude: "",
+  longitude: "",
+};
+
 const INITIAL_FORM: ProductFormState = {
   title: "",
   total_capacity: 10,
@@ -80,6 +111,10 @@ export default function ProviderPage() {
   const [session, setSession] = useState<SessionData | null>(null);
   const [provider, setProvider] = useState<Provider | null>(null);
   const [items, setItems] = useState<ResourceResponse[]>([]);
+  const [campForm, setCampForm] = useState<CampFormState>(INITIAL_CAMP_FORM);
+  const [campSubmitting, setCampSubmitting] = useState(false);
+  const [camps, setCamps] = useState<DistributionCamp[]>([]);
+  const [editingCampId, setEditingCampId] = useState<string | null>(null);
   const [requests, setRequests] = useState<ProviderAssistanceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -176,11 +211,12 @@ export default function ProviderPage() {
     setLoading(true);
     setError(null);
     try {
-      const [provResult, resourcesResult] = await Promise.all([
+      const [provResult, resourcesResult, campsResult] = await Promise.all([
         getProviderMe(currentSession.token),
         currentSession.accountId
           ? getProviderResources(currentSession.accountId)
           : Promise.resolve({ success: true, data: [] as ResourceResponse[] }),
+        getDistributionCamps(),
       ]);
 
       if (provResult.success) {
@@ -195,6 +231,9 @@ export default function ProviderPage() {
 
       if (resourcesResult.success) {
         setItems(resourcesResult.data);
+      }
+      if (campsResult.success && currentSession.accountId) {
+        setCamps(campsResult.data.filter((camp) => camp.provider_id === currentSession.accountId));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load provider profile");
@@ -279,6 +318,68 @@ export default function ProviderPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleSubmitCamp(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!provider) return;
+    if (!campForm.latitude || !campForm.longitude) {
+      setError("Select the camp location on the map before publishing.");
+      return;
+    }
+    setCampSubmitting(true);
+    setError(null);
+    try {
+      const payload = {
+        ...campForm,
+        latitude: Number(campForm.latitude),
+        longitude: Number(campForm.longitude),
+      };
+      const result = editingCampId
+        ? await updateDistributionCamp(editingCampId, payload)
+        : await createDistributionCamp(payload);
+      if (!result.success) throw new Error(result.error);
+      setCamps((previous) => editingCampId
+        ? previous.map((camp) => camp.id === editingCampId ? result.data : camp)
+        : [result.data, ...previous]);
+      const action = editingCampId ? "updated" : "published";
+      setEditingCampId(null);
+      setCampForm({ ...INITIAL_CAMP_FORM, contact_phone: provider.ph_no || "" });
+      setMessage(`Distribution camp "${result.data.camp_name}" ${action} successfully.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to publish distribution camp");
+    } finally {
+      setCampSubmitting(false);
+    }
+  }
+
+  function startEditCamp(camp: DistributionCamp) {
+    setEditingCampId(camp.id);
+    setCampForm({
+      camp_name: camp.camp_name,
+      address_text: camp.address_text,
+      items_available: camp.items_available,
+      distribution_start: camp.distribution_start.slice(0, 5),
+      distribution_end: camp.distribution_end.slice(0, 5),
+      contact_phone: camp.contact_phone,
+      latitude: String(camp.latitude),
+      longitude: String(camp.longitude),
+    });
+  }
+
+  async function handleDeleteCamp(camp: DistributionCamp) {
+    if (!window.confirm(`Remove "${camp.camp_name}" from the public aid listings?`)) return;
+    const result = await deleteDistributionCamp(camp.id);
+    if (!result.success) {
+      setError(result.error);
+      return;
+    }
+    setCamps((previous) => previous.filter((item) => item.id !== camp.id));
+    if (editingCampId === camp.id) {
+      setEditingCampId(null);
+      setCampForm({ ...INITIAL_CAMP_FORM, contact_phone: provider?.ph_no || "" });
+    }
+    setMessage(`Distribution camp "${camp.camp_name}" removed.`);
   }
 
   function startEdit(item: ResourceResponse) {
@@ -666,10 +767,32 @@ export default function ProviderPage() {
                     </div>
                   </article>
                 ))
+
               )}
             </div>
             <ProviderRequestMap requests={requests} />
           </div>
+        </section>
+
+        <section className="mt-10 border border-ink-border/30 bg-paper p-6">
+          <div className="flex items-center gap-2 border-b border-ink-border/20 pb-4">
+            <MapPin className="h-5 w-5 text-signal-dark" />
+            <div>
+              <h2 className="font-display text-xl font-bold text-ink">{editingCampId ? "Edit public distribution camp" : "Publish a public distribution camp"}</h2>
+              <p className="mt-1 text-xs text-slate">Tell nearby residents where and when they can collect aid from your NGO.</p>
+            </div>
+          </div>
+          <form onSubmit={handleSubmitCamp} className="mt-5 grid gap-4 md:grid-cols-2">
+            <label className="flex flex-col gap-1.5"><span className="text-xs font-semibold uppercase tracking-wider text-ink">Camp name *</span><input required value={campForm.camp_name} onChange={(e) => setCampForm({ ...campForm, camp_name: e.target.value })} placeholder="Community relief point" className="rounded border border-ink-border/40 bg-paper px-3 py-2 text-sm" /></label>
+            <label className="flex flex-col gap-1.5"><span className="text-xs font-semibold uppercase tracking-wider text-ink">Items available *</span><input required value={campForm.items_available} onChange={(e) => setCampForm({ ...campForm, items_available: e.target.value })} placeholder="Food, water, blankets" className="rounded border border-ink-border/40 bg-paper px-3 py-2 text-sm" /></label>
+            <label className="flex flex-col gap-1.5 md:col-span-2"><span className="text-xs font-semibold uppercase tracking-wider text-ink">Address or landmark *</span><input required value={campForm.address_text} onChange={(e) => setCampForm({ ...campForm, address_text: e.target.value })} placeholder="School ground, Sector 4" className="rounded border border-ink-border/40 bg-paper px-3 py-2 text-sm" /></label>
+            <label className="flex flex-col gap-1.5"><span className="text-xs font-semibold uppercase tracking-wider text-ink">Opens *</span><input required type="time" value={campForm.distribution_start} onChange={(e) => setCampForm({ ...campForm, distribution_start: e.target.value })} className="rounded border border-ink-border/40 bg-paper px-3 py-2 text-sm" /></label>
+            <label className="flex flex-col gap-1.5"><span className="text-xs font-semibold uppercase tracking-wider text-ink">Closes *</span><input required type="time" value={campForm.distribution_end} onChange={(e) => setCampForm({ ...campForm, distribution_end: e.target.value })} className="rounded border border-ink-border/40 bg-paper px-3 py-2 text-sm" /></label>
+            <div className="md:col-span-2"><span className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-ink">Camp location *</span><CampLocationPicker latitude={campForm.latitude ? Number(campForm.latitude) : null} longitude={campForm.longitude ? Number(campForm.longitude) : null} onChange={(latitude, longitude) => setCampForm({ ...campForm, latitude: String(latitude), longitude: String(longitude) })} /></div>
+            <label className="flex flex-col gap-1.5"><span className="text-xs font-semibold uppercase tracking-wider text-ink">Camp contact</span><input type="tel" value={campForm.contact_phone} onChange={(e) => setCampForm({ ...campForm, contact_phone: e.target.value })} placeholder={provider?.ph_no || "Phone number"} className="rounded border border-ink-border/40 bg-paper px-3 py-2 text-sm" /></label>
+            <div className="flex items-end gap-2"><button disabled={campSubmitting} className="flex items-center gap-2 rounded bg-signal px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-50">{campSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />} {editingCampId ? "Save changes" : "Publish camp"}</button>{editingCampId && <button type="button" onClick={() => { setEditingCampId(null); setCampForm({ ...INITIAL_CAMP_FORM, contact_phone: provider?.ph_no || "" }); }} className="rounded border border-ink-border/40 px-4 py-2.5 text-sm font-semibold text-slate">Cancel</button>}</div>
+          </form>
+          {camps.length > 0 && <div className="mt-6 border-t border-ink-border/20 pt-4"><p className="text-xs font-semibold uppercase tracking-wider text-slate">Your published camps</p><div className="mt-2 flex flex-col gap-2">{camps.map((camp) => <div key={camp.id} className="flex flex-wrap items-center justify-between gap-3 rounded border border-ink-border/25 bg-paper-dim px-3 py-2"><span className="text-xs text-ink"><strong>{camp.camp_name}</strong> · {camp.address_text}</span><span className="flex gap-2"><button type="button" onClick={() => startEditCamp(camp)} className="text-xs font-semibold text-ink underline">Edit</button><button type="button" onClick={() => void handleDeleteCamp(camp)} className="text-xs font-semibold text-alert underline">Delete</button></span></div>)}</div></div>}
         </section>
 
         {/* Main Grid: Form on Left/Top, Inventory on Right/Bottom */}

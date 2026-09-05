@@ -99,6 +99,10 @@ func main() {
 	mux.Handle("POST /api/mutual-aid/{id}/claim", authMw(userGuard(http.HandlerFunc(apiHandler.ClaimMutualAidItem))))
 
 	// Provider Resource Capacities & Inventory
+	mux.HandleFunc("GET /api/distribution-camps", apiHandler.ListDistributionCamps)
+	mux.Handle("POST /api/provider/distribution-camps", authMw(providerGuard(http.HandlerFunc(apiHandler.CreateDistributionCamp))))
+	mux.Handle("PUT /api/provider/distribution-camps/{id}", authMw(providerGuard(http.HandlerFunc(apiHandler.UpdateDistributionCamp))))
+	mux.Handle("DELETE /api/provider/distribution-camps/{id}", authMw(providerGuard(http.HandlerFunc(apiHandler.DeleteDistributionCamp))))
 	mux.Handle("POST /api/resources", authMw(providerGuard(http.HandlerFunc(apiHandler.CreateResource))))
 	mux.HandleFunc("GET /api/resources", apiHandler.ListResources)
 	mux.HandleFunc("GET /api/resources/{id}", apiHandler.GetResourceByID)
