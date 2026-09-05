@@ -12,6 +12,139 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
+type DispatchPingStatus string
+
+const (
+	DispatchPingStatusPENDING  DispatchPingStatus = "PENDING"
+	DispatchPingStatusACCEPTED DispatchPingStatus = "ACCEPTED"
+	DispatchPingStatusREJECTED DispatchPingStatus = "REJECTED"
+	DispatchPingStatusEXPIRED  DispatchPingStatus = "EXPIRED"
+)
+
+func (e *DispatchPingStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DispatchPingStatus(s)
+	case string:
+		*e = DispatchPingStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DispatchPingStatus: %T", src)
+	}
+	return nil
+}
+
+type NullDispatchPingStatus struct {
+	DispatchPingStatus DispatchPingStatus
+	Valid              bool // Valid is true if DispatchPingStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDispatchPingStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.DispatchPingStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DispatchPingStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDispatchPingStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DispatchPingStatus), nil
+}
+
+type DispatchStatus string
+
+const (
+	DispatchStatusQUEUED      DispatchStatus = "QUEUED"
+	DispatchStatusDISPATCHING DispatchStatus = "DISPATCHING"
+	DispatchStatusMATCHED     DispatchStatus = "MATCHED"
+	DispatchStatusFULFILLED   DispatchStatus = "FULFILLED"
+	DispatchStatusEXHAUSTED   DispatchStatus = "EXHAUSTED"
+	DispatchStatusCANCELLED   DispatchStatus = "CANCELLED"
+)
+
+func (e *DispatchStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = DispatchStatus(s)
+	case string:
+		*e = DispatchStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for DispatchStatus: %T", src)
+	}
+	return nil
+}
+
+type NullDispatchStatus struct {
+	DispatchStatus DispatchStatus
+	Valid          bool // Valid is true if DispatchStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullDispatchStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.DispatchStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.DispatchStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullDispatchStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.DispatchStatus), nil
+}
+
+type MatchStatus string
+
+const (
+	MatchStatusACTIVE    MatchStatus = "ACTIVE"
+	MatchStatusCOMPLETED MatchStatus = "COMPLETED"
+	MatchStatusABORTED   MatchStatus = "ABORTED"
+)
+
+func (e *MatchStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MatchStatus(s)
+	case string:
+		*e = MatchStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MatchStatus: %T", src)
+	}
+	return nil
+}
+
+type NullMatchStatus struct {
+	MatchStatus MatchStatus
+	Valid       bool // Valid is true if MatchStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMatchStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.MatchStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MatchStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMatchStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MatchStatus), nil
+}
+
 type ProviderType string
 
 const (
@@ -281,22 +414,36 @@ func (ns NullVerificationStatus) Value() (driver.Value, error) {
 }
 
 type AssistanceRequest struct {
-	ID                     pgtype.UUID
-	RequesterID            pgtype.UUID
-	TrackingCode           string
-	Category               ResourceCategory
-	QuantityNeeded         int32
-	Description            pgtype.Text
-	Priority               RequestPriority
-	Status                 RequestStatus
-	AssignedCoordinatorID  pgtype.UUID
-	Location               string
-	AddressText            pgtype.Text
-	ContactPhoneEncrypted  string
-	RequesterNameEncrypted string
-	Embedding              pgvector.Vector
-	CreatedAt              pgtype.Timestamptz
-	UpdatedAt              pgtype.Timestamptz
+	ID                           pgtype.UUID
+	RequesterID                  pgtype.UUID
+	TrackingCode                 string
+	Category                     ResourceCategory
+	QuantityNeeded               int32
+	Description                  pgtype.Text
+	Priority                     RequestPriority
+	Status                       RequestStatus
+	AssignedCoordinatorID        pgtype.UUID
+	Location                     string
+	AddressText                  pgtype.Text
+	ContactPhoneEncrypted        string
+	RequesterNameEncrypted       string
+	Embedding                    pgvector.Vector
+	CreatedAt                    pgtype.Timestamptz
+	UpdatedAt                    pgtype.Timestamptz
+	PriorityScore                float64
+	YoloScore                    float64
+	YoloDetections               []byte
+	ClusterID                    pgtype.UUID
+	ClusterSize                  int32
+	MedicalEmergency             bool
+	WaterFoodUrgency             bool
+	VulnerableIndividualsPresent bool
+	PropertyDamageOnly           bool
+	IsIdentityVerified           bool
+	IsLocationVerified           bool
+	DispatchStatus               DispatchStatus
+	MatchedProviderID            pgtype.UUID
+	MatchedAt                    pgtype.Timestamptz
 }
 
 type DisasterReport struct {
@@ -305,6 +452,28 @@ type DisasterReport struct {
 	Embedding  string
 	Location   string
 	CreatedAt  pgtype.Timestamptz
+}
+
+type DispatchMatch struct {
+	ID            pgtype.UUID
+	RequestID     pgtype.UUID
+	ProviderID    pgtype.UUID
+	ClusterID     pgtype.UUID
+	HandshakeCode string
+	Status        MatchStatus
+	CompletedAt   pgtype.Timestamptz
+	CreatedAt     pgtype.Timestamptz
+}
+
+type DispatchPing struct {
+	ID          pgtype.UUID
+	RequestID   pgtype.UUID
+	ProviderID  pgtype.UUID
+	PingOrder   int32
+	Status      DispatchPingStatus
+	ExpiresAt   pgtype.Timestamptz
+	RespondedAt pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
 }
 
 type MutualAidItem struct {
@@ -320,22 +489,26 @@ type MutualAidItem struct {
 }
 
 type Provider struct {
-	ID               pgtype.UUID
-	Type             ProviderType
-	AuthorizedPerson pgtype.Text
-	Name             string
-	PasswordHash     string
-	RegistrationNo   pgtype.Text
-	GovtID           string
-	Cin              pgtype.Text
-	Email            string
-	PhNo             string
-	Website          pgtype.Text
-	State            string
-	Dist             string
-	Location         string
-	LastUpdatedAt    pgtype.Timestamptz
-	CreatedAt        pgtype.Timestamptz
+	ID                 pgtype.UUID
+	Type               ProviderType
+	AuthorizedPerson   pgtype.Text
+	Name               string
+	PasswordHash       string
+	RegistrationNo     pgtype.Text
+	GovtID             string
+	Cin                pgtype.Text
+	Email              string
+	PhNo               string
+	Website            pgtype.Text
+	State              string
+	Dist               string
+	Location           string
+	LastUpdatedAt      pgtype.Timestamptz
+	CreatedAt          pgtype.Timestamptz
+	ServiceRadiusKm    float64
+	IsAvailable        bool
+	MaxActiveTasks     int32
+	CurrentActiveTasks int32
 }
 
 type Resource struct {
@@ -350,6 +523,7 @@ type Resource struct {
 	Status          VerificationStatus
 	Location        string
 	ContactPhone    pgtype.Text
+	ImageUrl        pgtype.Text
 	Embedding       pgvector.Vector
 	LastUpdatedAt   pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz
@@ -375,4 +549,5 @@ type User struct {
 	Role         UserRole
 	FullName     string
 	CreatedAt    pgtype.Timestamptz
+	Location     interface{}
 }

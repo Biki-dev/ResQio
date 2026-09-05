@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -15,8 +16,10 @@ import (
 	"go-sse-server/internal/auth"
 	"go-sse-server/internal/config"
 	"go-sse-server/internal/database"
+	"go-sse-server/internal/dispatch"
 	"go-sse-server/internal/handlers"
 	"go-sse-server/internal/middleware"
+	"go-sse-server/internal/ml"
 )
 
 func setupTestServer(t *testing.T) (http.Handler, *pgxpool.Pool) {
@@ -34,7 +37,10 @@ func setupTestServer(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	}
 
 	queries := database.New(pool)
-	apiHandler := handlers.NewAPIHandler(queries, pool, cfg)
+	mlClient := ml.NewClient(os.Getenv("EMBEDDING_SERVICE_URL"))
+	coordinator := dispatch.NewCoordinator(queries, pool, 3*time.Minute)
+	coordinator.SetMLClient(mlClient)
+	apiHandler := handlers.NewAPIHandler(queries, pool, cfg, coordinator, mlClient)
 
 	mux := http.NewServeMux()
 	authMw := middleware.AuthMiddleware(cfg.JWTSecret)
@@ -63,7 +69,8 @@ func setupTestServer(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	mux.HandleFunc("GET /api/hazards/{id}", apiHandler.GetRoadHazardByID)
 
 	// Assistance Requests
-	mux.Handle("POST /api/requests", optAuthMw(http.HandlerFunc(apiHandler.SubmitAssistanceRequest)))
+	victimGuard := middleware.RequireUserRole(string(database.UserRoleVICTIM))
+	mux.Handle("POST /api/requests", authMw(victimGuard(http.HandlerFunc(apiHandler.SubmitAssistanceRequest))))
 	mux.HandleFunc("GET /api/requests", apiHandler.ListAssistanceRequests)
 	mux.HandleFunc("GET /api/requests/{id}", apiHandler.GetAssistanceRequestByID)
 	mux.HandleFunc("GET /api/requests/track/{code}", apiHandler.TrackAssistanceRequest)
@@ -77,6 +84,16 @@ func setupTestServer(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	mux.Handle("POST /api/resources", authMw(providerGuard(http.HandlerFunc(apiHandler.CreateResource))))
 	mux.HandleFunc("GET /api/resources", apiHandler.ListResources)
 	mux.HandleFunc("GET /api/resources/{id}", apiHandler.GetResourceByID)
+	mux.Handle("PUT /api/resources/{id}", authMw(providerGuard(http.HandlerFunc(apiHandler.UpdateResource))))
+	mux.Handle("DELETE /api/resources/{id}", authMw(providerGuard(http.HandlerFunc(apiHandler.DeleteResource))))
+
+	// Provider Dispatch Pings
+	mux.Handle("GET /api/provider/pings/active", authMw(providerGuard(http.HandlerFunc(apiHandler.GetActiveProviderPing))))
+	mux.Handle("POST /api/provider/pings/{id}/accept", authMw(providerGuard(http.HandlerFunc(apiHandler.AcceptPing))))
+	mux.Handle("POST /api/provider/pings/{id}/reject", authMw(providerGuard(http.HandlerFunc(apiHandler.RejectPing))))
+
+	// Admin Alerts
+	mux.HandleFunc("GET /api/admin/alerts", apiHandler.GetExhaustedAlerts)
 
 	// System & Health
 	mux.HandleFunc("GET /healthz", apiHandler.Healthz)
@@ -472,8 +489,65 @@ func TestAssistanceRequestFormAndTracking(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(payload)
+	// 1. Unauthenticated request should fail with 401 Unauthorized
+	reqUnauth := httptest.NewRequest("POST", "/api/requests", bytes.NewReader(body))
+	reqUnauth.Header.Set("Content-Type", "application/json")
+	recUnauth := httptest.NewRecorder()
+	handler.ServeHTTP(recUnauth, reqUnauth)
+	if recUnauth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated assistance request, got: %d", recUnauth.Code)
+	}
+
+	// 2. Non-victim user (e.g., PUBLIC role) should fail with 403 Forbidden
+	publicPhone := fmt.Sprintf("+91%010d", time.Now().UnixNano()%10000000000)
+	publicUserPayload := map[string]string{
+		"phone":     publicPhone,
+		"password":  "PublicUserPass123!",
+		"full_name": "Public Citizen",
+		"role":      "PUBLIC",
+	}
+	publicBody, _ := json.Marshal(publicUserPayload)
+	regReq := httptest.NewRequest("POST", "/api/auth/users/register", bytes.NewReader(publicBody))
+	regReq.Header.Set("Content-Type", "application/json")
+	regRec := httptest.NewRecorder()
+	handler.ServeHTTP(regRec, regReq)
+	if regRec.Code != http.StatusCreated {
+		t.Fatalf("failed to register public user: %d (%s)", regRec.Code, regRec.Body.String())
+	}
+	var publicAuthResp handlers.AuthResponse
+	_ = json.NewDecoder(regRec.Body).Decode(&publicAuthResp)
+
+	reqForbidden := httptest.NewRequest("POST", "/api/requests", bytes.NewReader(body))
+	reqForbidden.Header.Set("Content-Type", "application/json")
+	reqForbidden.Header.Set("Authorization", "Bearer "+publicAuthResp.Token)
+	recForbidden := httptest.NewRecorder()
+	handler.ServeHTTP(recForbidden, reqForbidden)
+	if recForbidden.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for non-victim user, got: %d", recForbidden.Code)
+	}
+
+	// 3. User with VICTIM role should succeed with 201 Created
+	victimPhone := fmt.Sprintf("+91%010d", (time.Now().UnixNano()+1)%10000000000)
+	victimUserPayload := map[string]string{
+		"phone":     victimPhone,
+		"password":  "VictimUserPass123!",
+		"full_name": "Priya Nair",
+		"role":      "VICTIM",
+	}
+	victimBody, _ := json.Marshal(victimUserPayload)
+	vRegReq := httptest.NewRequest("POST", "/api/auth/users/register", bytes.NewReader(victimBody))
+	vRegReq.Header.Set("Content-Type", "application/json")
+	vRegRec := httptest.NewRecorder()
+	handler.ServeHTTP(vRegRec, vRegReq)
+	if vRegRec.Code != http.StatusCreated {
+		t.Fatalf("failed to register victim user: %d (%s)", vRegRec.Code, vRegRec.Body.String())
+	}
+	var victimAuthResp handlers.AuthResponse
+	_ = json.NewDecoder(vRegRec.Body).Decode(&victimAuthResp)
+
 	req := httptest.NewRequest("POST", "/api/requests", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+victimAuthResp.Token)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -644,6 +718,391 @@ func TestMutualAidAndResources(t *testing.T) {
 	if viewResRec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK on get resource by ID, got: %d", viewResRec.Code)
 	}
+
+	// 7. Update Resource Listing
+	updatePayload := handlers.UpdateResourceRequest{
+		Title:         "Drinking Water Supplies - Updated",
+		TotalCapacity: 12000,
+		ImageUrl:      "/uploads/updated-water.jpg",
+	}
+	updBody, _ := json.Marshal(updatePayload)
+	updReq := httptest.NewRequest("PUT", "/api/resources/"+resCreated.ID, bytes.NewReader(updBody))
+	updReq.Header.Set("Content-Type", "application/json")
+	updReq.Header.Set("Authorization", "Bearer "+provToken)
+	updRec := httptest.NewRecorder()
+	handler.ServeHTTP(updRec, updReq)
+
+	if updRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on resource update, got: %d (%s)", updRec.Code, updRec.Body.String())
+	}
+
+	var resUpdated handlers.ResourceResponse
+	_ = json.NewDecoder(updRec.Body).Decode(&resUpdated)
+	if resUpdated.Title != "Drinking Water Supplies - Updated" {
+		t.Errorf("expected updated title, got: %s", resUpdated.Title)
+	}
+	if resUpdated.TotalCapacity != 12000 {
+		t.Errorf("expected capacity 12000, got: %d", resUpdated.TotalCapacity)
+	}
+	if resUpdated.ImageUrl != "/uploads/updated-water.jpg" {
+		t.Errorf("expected image url '/uploads/updated-water.jpg', got: %s", resUpdated.ImageUrl)
+	}
+
+	// 8. Delete Resource
+	delReq := httptest.NewRequest("DELETE", "/api/resources/"+resCreated.ID, nil)
+	delReq.Header.Set("Authorization", "Bearer "+provToken)
+	delRec := httptest.NewRecorder()
+	handler.ServeHTTP(delRec, delReq)
+
+	if delRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on resource delete, got: %d (%s)", delRec.Code, delRec.Body.String())
+	}
 }
+
+func TestDispatchHTTPEndpoints(t *testing.T) {
+	handler, pool := setupTestServer(t)
+	if pool != nil {
+		t.Cleanup(func() {
+			pool.Close()
+		})
+	}
+
+	ts := time.Now().UnixNano()
+	provPhone := fmt.Sprintf("+977984%07d", ts%10000000)
+	provEmail := fmt.Sprintf("dispatch_prov_%d@resqio.org", ts)
+
+	// 1. Register and Login Provider (Isolated coordinates: 30.0, 30.0)
+	regPayload := handlers.ProviderRegisterRequest{
+		Type:             "ORGANISATION",
+		AuthorizedPerson: "Dispatch Officer",
+		Name:             "Rapid Rescue Team",
+		Password:         "SecurePassword123!",
+		GovtID:           "GOV-DISP-001",
+		Email:            provEmail,
+		PhNo:             provPhone,
+		State:            "Bagmati",
+		Dist:             "Kathmandu",
+		Location:         "POINT(30.0000 30.0000)",
+	}
+	body, _ := json.Marshal(regPayload)
+	req := httptest.NewRequest("POST", "/api/auth/providers/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to register provider: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var provAuth handlers.AuthResponse
+	_ = json.NewDecoder(rec.Body).Decode(&provAuth)
+	provToken := provAuth.Token
+
+	// 2. Add inventory for Provider
+	resPayload := handlers.CreateResourceRequest{
+		Title:           "Emergency Search Equipment",
+		Category:        "EQUIPMENT",
+		TotalCapacity:   100,
+		CurrentCapacity: 100,
+		Unit:            "sets",
+		Location:        "POINT(30.0000 30.0000)",
+		ContactPhone:    provPhone,
+	}
+	body, _ = json.Marshal(resPayload)
+	req = httptest.NewRequest("POST", "/api/resources", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+provToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to create resource: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// 3. Register Victim and Submit Request for EQUIPMENT
+	userPhone := fmt.Sprintf("+977981%07d", ts%10000000)
+	userRegPayload := handlers.UserRegisterRequest{
+		Phone:    userPhone,
+		Password: "Password123!",
+		Role:     "VICTIM",
+		FullName: "Injured Citizen",
+	}
+	body, _ = json.Marshal(userRegPayload)
+	req = httptest.NewRequest("POST", "/api/auth/users/register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to register victim: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var userAuth handlers.AuthResponse
+	_ = json.NewDecoder(rec.Body).Decode(&userAuth)
+	victimToken := userAuth.Token
+
+	// Submit Assistance Request
+	assistPayload := handlers.SubmitAssistanceRequest{
+		Name:         "Injured Citizen",
+		PhoneNumber:  userPhone,
+		ThingsNeeded: "Emergency Search Equipment",
+		Category:     "EQUIPMENT",
+		Amount:       5,
+		Description:  "Immediate rescue gear needed",
+		Priority:     "CRITICAL",
+		Location:     "POINT(30.0010 30.0010)",
+		AddressText:  "Rescue Site",
+	}
+	body, _ = json.Marshal(assistPayload)
+	req = httptest.NewRequest("POST", "/api/requests", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+victimToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to submit request: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var assistResp handlers.AssistanceRequestResponse
+	_ = json.NewDecoder(rec.Body).Decode(&assistResp)
+	trackingCode := assistResp.TrackingCode
+
+	t.Cleanup(func() {
+		cleanCtx := context.Background()
+		if assistResp.ID != "" {
+			_, _ = pool.Exec(cleanCtx, "DELETE FROM dispatch_matches WHERE request_id = $1", assistResp.ID)
+			_, _ = pool.Exec(cleanCtx, "DELETE FROM dispatch_pings WHERE request_id = $1", assistResp.ID)
+			_, _ = pool.Exec(cleanCtx, "DELETE FROM assistance_requests WHERE id = $1", assistResp.ID)
+		}
+		_, _ = pool.Exec(cleanCtx, "DELETE FROM resources WHERE contact_phone = $1", provPhone)
+		_, _ = pool.Exec(cleanCtx, "DELETE FROM providers WHERE ph_no = $1", provPhone)
+		_, _ = pool.Exec(cleanCtx, "DELETE FROM users WHERE phone = $1", userPhone)
+	})
+
+	// Give async dispatch 400ms to trigger
+	time.Sleep(400 * time.Millisecond)
+
+	// 4. Provider checks active pings
+	req = httptest.NewRequest("GET", "/api/provider/pings/active", nil)
+	req.Header.Set("Authorization", "Bearer "+provToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to get active ping: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var pingData struct {
+		Ping *handlers.ActivePingResponse `json:"ping"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&pingData)
+	if pingData.Ping == nil {
+		t.Fatalf("expected provider to have active pending ping, got nil")
+	}
+	if pingData.Ping.Category != "EQUIPMENT" {
+		t.Errorf("expected ping category EQUIPMENT, got: %s", pingData.Ping.Category)
+	}
+	if pingData.Ping.QuantityNeeded != 5 {
+		t.Errorf("expected quantity 5, got: %d", pingData.Ping.QuantityNeeded)
+	}
+
+	pingID := pingData.Ping.PingID
+
+	// 5. Provider Accepts Ping
+	req = httptest.NewRequest("POST", "/api/provider/pings/"+pingID+"/accept", nil)
+	req.Header.Set("Authorization", "Bearer "+provToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to accept ping: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var matchResp handlers.MatchResponse
+	_ = json.NewDecoder(rec.Body).Decode(&matchResp)
+	if matchResp.HandshakeCode == "" {
+		t.Errorf("expected non-empty handshake code, got empty")
+	}
+	if matchResp.Status != "ACTIVE" {
+		t.Errorf("expected status ACTIVE, got: %s", matchResp.Status)
+	}
+
+	// 6. Public Tracking Endpoint Check
+	req = httptest.NewRequest("GET", "/api/requests/track/"+trackingCode, nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to track request: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var trackResp handlers.AssistanceRequestResponse
+	_ = json.NewDecoder(rec.Body).Decode(&trackResp)
+	if trackResp.DispatchStatus != "MATCHED" {
+		t.Errorf("expected dispatch_status MATCHED, got: %s", trackResp.DispatchStatus)
+	}
+	if trackResp.HandshakeCode == nil || *trackResp.HandshakeCode != matchResp.HandshakeCode {
+		t.Errorf("expected handshake code %s, got: %v", matchResp.HandshakeCode, trackResp.HandshakeCode)
+	}
+	if trackResp.MatchedProviderName == nil || *trackResp.MatchedProviderName != "Rapid Rescue Team" {
+		t.Errorf("expected matched provider 'Rapid Rescue Team', got: %v", trackResp.MatchedProviderName)
+	}
+
+	// 7. Check Admin Alerts Endpoint
+	req = httptest.NewRequest("GET", "/api/admin/alerts", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to get admin alerts: %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUserRegistrationLocation(t *testing.T) {
+	handler, _ := setupTestServer(t)
+
+	phone := fmt.Sprintf("98%08d", time.Now().UnixNano()%100000000)
+	payload := handlers.UserRegisterRequest{
+		Phone:    phone,
+		FullName: "Auto Geolocation User",
+		Password: "password123",
+		Role:     "VICTIM",
+		Location: "POINT(77.2090 28.6139)",
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/api/auth/users/register", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var authResp handlers.AuthResponse
+	_ = json.NewDecoder(rec.Body).Decode(&authResp)
+	userMap, ok := authResp.User.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected user map in response")
+	}
+	loc, ok := userMap["location"].(string)
+	if !ok || loc == "" {
+		t.Errorf("expected non-empty location in user response, got: %v", userMap["location"])
+	}
+}
+
+func TestSemanticEmbeddingMatching(t *testing.T) {
+	handler, pool := setupTestServer(t)
+
+	// 1. Register Provider A with "Emergency Drinking Water Bottles"
+	provPhone := fmt.Sprintf("97%08d", time.Now().UnixNano()%100000000)
+	provPayload := handlers.ProviderRegisterRequest{
+		Type:     "ORGANISATION",
+		Name:     "Water Relief Network",
+		GovtID:   "GOV-WTR-001",
+		Email:    fmt.Sprintf("water_%d@relief.org", time.Now().UnixNano()),
+		PhNo:     provPhone,
+		State:    "Delhi",
+		Dist:     "Central Delhi",
+		Location: "POINT(45.1230 45.1230)",
+		Password: "password123",
+	}
+	b, _ := json.Marshal(provPayload)
+	req := httptest.NewRequest("POST", "/api/auth/providers/register", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to register provider: %d (%s)", rec.Code, rec.Body.String())
+	}
+	var provAuth handlers.AuthResponse
+	_ = json.NewDecoder(rec.Body).Decode(&provAuth)
+	provToken := provAuth.Token
+
+	// 2. Add resource "Emergency drinking water"
+	resPayload := handlers.CreateResourceRequest{
+		Title:           "Emergency drinking water bottles",
+		Category:        "WATER",
+		TotalCapacity:   100,
+		CurrentCapacity: 100,
+		Unit:            "bottles",
+		Location:        "POINT(45.1230 45.1230)",
+	}
+	b, _ = json.Marshal(resPayload)
+	req = httptest.NewRequest("POST", "/api/resources", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+provToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to create resource: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// 3. Register Victim
+	victimPhone := fmt.Sprintf("96%08d", time.Now().UnixNano()%100000000)
+	victimPayload := handlers.UserRegisterRequest{
+		Phone:    victimPhone,
+		FullName: "Pani Requester",
+		Password: "password123",
+		Role:     "VICTIM",
+		Location: "POINT(45.1235 45.1235)",
+	}
+	b, _ = json.Marshal(victimPayload)
+	req = httptest.NewRequest("POST", "/api/auth/users/register", bytes.NewReader(b))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to register victim: %d (%s)", rec.Code, rec.Body.String())
+	}
+	var victimAuth handlers.AuthResponse
+	_ = json.NewDecoder(rec.Body).Decode(&victimAuth)
+	victimToken := victimAuth.Token
+
+	// 4. Submit assistance request with ThingsNeeded = "pani" (vernacular match for water)
+	assistPayload := handlers.SubmitAssistanceRequest{
+		Name:         "Victim Needing Water",
+		PhoneNumber:  victimPhone,
+		ThingsNeeded: "pani",
+		Amount:       5,
+		Location:     "POINT(45.1235 45.1235)",
+	}
+	b, _ = json.Marshal(assistPayload)
+	req = httptest.NewRequest("POST", "/api/requests", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+victimToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to submit assistance request for pani: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var assistResp handlers.AssistanceRequestResponse
+	_ = json.NewDecoder(rec.Body).Decode(&assistResp)
+
+	t.Cleanup(func() {
+		cleanCtx := context.Background()
+		if assistResp.ID != "" {
+			_, _ = pool.Exec(cleanCtx, "DELETE FROM dispatch_matches WHERE request_id = $1", assistResp.ID)
+			_, _ = pool.Exec(cleanCtx, "DELETE FROM dispatch_pings WHERE request_id = $1", assistResp.ID)
+			_, _ = pool.Exec(cleanCtx, "DELETE FROM assistance_requests WHERE id = $1", assistResp.ID)
+		}
+		_, _ = pool.Exec(cleanCtx, "DELETE FROM resources WHERE contact_phone = $1", provPhone)
+		_, _ = pool.Exec(cleanCtx, "DELETE FROM providers WHERE ph_no = $1", provPhone)
+		_, _ = pool.Exec(cleanCtx, "DELETE FROM users WHERE phone = $1", victimPhone)
+	})
+
+	// Wait for background async dispatch to ping nearest matching candidate
+	time.Sleep(500 * time.Millisecond)
+
+	// 5. Check that Provider receives the ping for "pani" -> matched with "Emergency drinking water bottles"
+	req = httptest.NewRequest("GET", "/api/provider/pings/active", nil)
+	req.Header.Set("Authorization", "Bearer "+provToken)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to get active ping: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var pingData struct {
+		Ping *handlers.ActivePingResponse `json:"ping"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&pingData)
+	if pingData.Ping == nil {
+		t.Fatalf("expected provider to have received ping matching pani to water, but got none")
+	}
+	if pingData.Ping.Description != "pani" {
+		t.Errorf("expected request description 'pani', got: %s", pingData.Ping.Description)
+	}
+}
+
 
 

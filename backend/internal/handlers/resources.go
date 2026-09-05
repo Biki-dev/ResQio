@@ -30,6 +30,18 @@ type CreateResourceRequest struct {
 	Latitude        *float64 `json:"latitude,omitempty"`
 	Longitude       *float64 `json:"longitude,omitempty"`
 	ContactPhone    string   `json:"contact_phone,omitempty"`
+	ImageUrl        string   `json:"image_url,omitempty"`
+}
+
+type UpdateResourceRequest struct {
+	Title           string `json:"title,omitempty"`
+	Description     string `json:"description,omitempty"`
+	Category        string `json:"category,omitempty"`
+	TotalCapacity   int32  `json:"total_capacity,omitempty"`
+	CurrentCapacity int32  `json:"current_capacity,omitempty"`
+	Unit            string `json:"unit,omitempty"`
+	ContactPhone    string `json:"contact_phone,omitempty"`
+	ImageUrl        string `json:"image_url,omitempty"`
 }
 
 type UpdateResourceCapacityRequest struct {
@@ -48,6 +60,7 @@ type ResourceResponse struct {
 	Status          string    `json:"status"`
 	Location        string    `json:"location"`
 	ContactPhone    string    `json:"contact_phone"`
+	ImageUrl        string    `json:"image_url"`
 	LastUpdatedAt   time.Time `json:"last_updated_at"`
 	CreatedAt       time.Time `json:"created_at"`
 }
@@ -105,6 +118,17 @@ func (h *APIHandler) CreateResource(w http.ResponseWriter, r *http.Request) {
 		req.CurrentCapacity = req.TotalCapacity
 	}
 
+	var embVector pgvector.Vector
+	if h.mlClient != nil {
+		embedTarget := req.Title
+		if req.Description != "" {
+			embedTarget = fmt.Sprintf("%s - %s", req.Title, req.Description)
+		}
+		if floats, embErr := h.mlClient.GenerateEmbedding(r.Context(), embedTarget); embErr == nil && len(floats) > 0 {
+			embVector = pgvector.NewVector(floats)
+		}
+	}
+
 	resource, err := h.queries.CreateResource(r.Context(), database.CreateResourceParams{
 		ProviderID:      pgtype.UUID{Bytes: providerUUID, Valid: true},
 		Title:           req.Title,
@@ -116,11 +140,24 @@ func (h *APIHandler) CreateResource(w http.ResponseWriter, r *http.Request) {
 		Status:          database.VerificationStatusUNVERIFIED,
 		Location:        location,
 		ContactPhone:    textToPgText(req.ContactPhone),
-		Embedding:       pgvector.Vector{},
+		ImageUrl:        textToPgText(req.ImageUrl),
+		Embedding:       embVector,
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create resource: %v", err))
 		return
+	}
+
+	if h.mlClient != nil {
+		_ = h.mlClient.UpsertResource(r.Context(),
+			uuid.UUID(resource.ID.Bytes).String(),
+			resource.Title,
+			string(resource.Category),
+			map[string]interface{}{
+				"provider_id": uuid.UUID(resource.ProviderID.Bytes).String(),
+				"capacity":    resource.CurrentCapacity,
+			},
+		)
 	}
 
 	respondWithJSON(w, http.StatusCreated, ResourceResponse{
@@ -135,6 +172,7 @@ func (h *APIHandler) CreateResource(w http.ResponseWriter, r *http.Request) {
 		Status:          string(resource.Status),
 		Location:        resource.Location,
 		ContactPhone:    pgTextToString(resource.ContactPhone),
+		ImageUrl:        pgTextToString(resource.ImageUrl),
 		LastUpdatedAt:   resource.LastUpdatedAt.Time,
 		CreatedAt:       resource.CreatedAt.Time,
 	})
@@ -204,6 +242,7 @@ func (h *APIHandler) ListResources(w http.ResponseWriter, r *http.Request) {
 			Status:          string(resource.Status),
 			Location:        resource.Location,
 			ContactPhone:    pgTextToString(resource.ContactPhone),
+			ImageUrl:        pgTextToString(resource.ImageUrl),
 			LastUpdatedAt:   resource.LastUpdatedAt.Time,
 			CreatedAt:       resource.CreatedAt.Time,
 		})
@@ -242,7 +281,189 @@ func (h *APIHandler) GetResourceByID(w http.ResponseWriter, r *http.Request) {
 		Status:          string(resource.Status),
 		Location:        resource.Location,
 		ContactPhone:    pgTextToString(resource.ContactPhone),
+		ImageUrl:        pgTextToString(resource.ImageUrl),
 		LastUpdatedAt:   resource.LastUpdatedAt.Time,
 		CreatedAt:       resource.CreatedAt.Time,
+	})
+}
+
+func (h *APIHandler) UpdateResource(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.GetClaims(r.Context())
+	if !ok || claims.AccountID == "" || claims.AccountType != auth.AccountTypeProvider {
+		respondWithError(w, http.StatusUnauthorized, "Provider authentication required to update resource")
+		return
+	}
+
+	providerUUID, err := uuid.Parse(claims.AccountID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid provider ID in token")
+		return
+	}
+
+	idStr := r.PathValue("id")
+	resourceUUID, err := uuid.Parse(idStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid resource ID")
+		return
+	}
+
+	existing, err := h.queries.GetResourceByID(r.Context(), pgtype.UUID{Bytes: resourceUUID, Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondWithError(w, http.StatusNotFound, "Resource not found")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Failed to fetch existing resource")
+		return
+	}
+
+	if uuid.UUID(existing.ProviderID.Bytes) != providerUUID {
+		respondWithError(w, http.StatusForbidden, "Access forbidden: you do not own this resource")
+		return
+	}
+
+	var req UpdateResourceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	title := existing.Title
+	if strings.TrimSpace(req.Title) != "" {
+		title = strings.TrimSpace(req.Title)
+	}
+
+	description := existing.Description
+	if req.Description != "" {
+		description = textToPgText(req.Description)
+	}
+
+	category := existing.Category
+	if req.Category != "" {
+		switch strings.ToUpper(strings.TrimSpace(req.Category)) {
+		case "FOOD":
+			category = database.ResourceCategoryFOOD
+		case "WATER":
+			category = database.ResourceCategoryWATER
+		case "MEDICINE":
+			category = database.ResourceCategoryMEDICINE
+		case "SHELTER":
+			category = database.ResourceCategorySHELTER
+		case "EQUIPMENT":
+			category = database.ResourceCategoryEQUIPMENT
+		case "VOLUNTEER":
+			category = database.ResourceCategoryVOLUNTEER
+		default:
+			category = database.ResourceCategoryOTHER
+		}
+	}
+
+	totalCapacity := existing.TotalCapacity
+	if req.TotalCapacity > 0 {
+		totalCapacity = req.TotalCapacity
+	}
+
+	currentCapacity := existing.CurrentCapacity
+	if req.CurrentCapacity > 0 {
+		currentCapacity = req.CurrentCapacity
+	} else if req.TotalCapacity > 0 && req.CurrentCapacity == 0 {
+		currentCapacity = req.TotalCapacity
+	}
+
+	unit := existing.Unit
+	if req.Unit != "" {
+		unit = textToPgText(req.Unit)
+	}
+
+	contactPhone := existing.ContactPhone
+	if req.ContactPhone != "" {
+		contactPhone = textToPgText(req.ContactPhone)
+	}
+
+	imageUrl := existing.ImageUrl
+	if req.ImageUrl != "" {
+		imageUrl = textToPgText(req.ImageUrl)
+	}
+
+	updated, err := h.queries.UpdateResource(r.Context(), database.UpdateResourceParams{
+		ID:              pgtype.UUID{Bytes: resourceUUID, Valid: true},
+		Title:           title,
+		Description:     description,
+		Category:        category,
+		TotalCapacity:   totalCapacity,
+		CurrentCapacity: currentCapacity,
+		Unit:            unit,
+		ContactPhone:    contactPhone,
+		ImageUrl:        imageUrl,
+		ProviderID:      pgtype.UUID{Bytes: providerUUID, Valid: true},
+	})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update resource: %v", err))
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, ResourceResponse{
+		ID:              uuid.UUID(updated.ID.Bytes).String(),
+		ProviderID:      uuid.UUID(updated.ProviderID.Bytes).String(),
+		Title:           updated.Title,
+		Description:     pgTextToString(updated.Description),
+		Category:        string(updated.Category),
+		TotalCapacity:   updated.TotalCapacity,
+		CurrentCapacity: updated.CurrentCapacity,
+		Unit:            pgTextToString(updated.Unit),
+		Status:          string(updated.Status),
+		Location:        updated.Location,
+		ContactPhone:    pgTextToString(updated.ContactPhone),
+		ImageUrl:        pgTextToString(updated.ImageUrl),
+		LastUpdatedAt:   updated.LastUpdatedAt.Time,
+		CreatedAt:       updated.CreatedAt.Time,
+	})
+}
+
+func (h *APIHandler) DeleteResource(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.GetClaims(r.Context())
+	if !ok || claims.AccountID == "" || claims.AccountType != auth.AccountTypeProvider {
+		respondWithError(w, http.StatusUnauthorized, "Provider authentication required to delete resource")
+		return
+	}
+
+	providerUUID, err := uuid.Parse(claims.AccountID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid provider ID in token")
+		return
+	}
+
+	idStr := r.PathValue("id")
+	resourceUUID, err := uuid.Parse(idStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid resource ID")
+		return
+	}
+
+	existing, err := h.queries.GetResourceByID(r.Context(), pgtype.UUID{Bytes: resourceUUID, Valid: true})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondWithError(w, http.StatusNotFound, "Resource not found")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve resource")
+		return
+	}
+
+	if uuid.UUID(existing.ProviderID.Bytes) != providerUUID {
+		respondWithError(w, http.StatusForbidden, "Access forbidden: you do not own this resource")
+		return
+	}
+
+	if err := h.queries.DeleteResource(r.Context(), database.DeleteResourceParams{
+		ID:         pgtype.UUID{Bytes: resourceUUID, Valid: true},
+		ProviderID: pgtype.UUID{Bytes: providerUUID, Valid: true},
+	}); err != nil {
+		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to delete resource: %v", err))
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{
+		"message": "Resource deleted successfully",
 	})
 }

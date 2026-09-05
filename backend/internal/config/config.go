@@ -16,8 +16,8 @@ type Config struct {
 }
 
 func Load() *Config {
-	// Load .env file if present, ignoring if not found
-	if err := godotenv.Load(); err != nil {
+	// Load .env file if present, checking current dir, backend/.env, and root
+	if err := godotenv.Load(".env", "backend/.env", "../.env", "../backend/.env"); err != nil {
 		log.Println("[Config] No .env file found, reading from environment variables")
 	}
 

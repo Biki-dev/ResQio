@@ -16,8 +16,10 @@ import (
 	"go-sse-server/internal/auth"
 	"go-sse-server/internal/config"
 	"go-sse-server/internal/database"
+	"go-sse-server/internal/dispatch"
 	"go-sse-server/internal/handlers"
 	"go-sse-server/internal/middleware"
+	"go-sse-server/internal/ml"
 )
 
 func main() {
@@ -48,9 +50,13 @@ func main() {
 		log.Println("[DB] Connected to PostgreSQL successfully")
 	}
 
-	// 3. Initialize queries and API handlers
+	// 3. Initialize queries, ML client, dispatch coordinator, worker, and API handlers
 	queries := database.New(pool)
-	apiHandler := handlers.NewAPIHandler(queries, pool, cfg)
+	mlClient := ml.NewClient(os.Getenv("EMBEDDING_SERVICE_URL"))
+	coordinator := dispatch.NewCoordinator(queries, pool, 3*time.Minute)
+	coordinator.SetMLClient(mlClient)
+	dispatchWorker := dispatch.NewWorker(coordinator, 5*time.Second)
+	apiHandler := handlers.NewAPIHandler(queries, pool, cfg, coordinator, mlClient)
 
 	// 4. Setup routes
 	mux := http.NewServeMux()
@@ -59,6 +65,7 @@ func main() {
 	optAuthMw := middleware.OptionalAuthMiddleware(cfg.JWTSecret)
 	userGuard := middleware.RequireAccountType(auth.AccountTypeUser)
 	providerGuard := middleware.RequireAccountType(auth.AccountTypeProvider)
+	victimGuard := middleware.RequireUserRole(string(database.UserRoleVICTIM))
 
 	// User Routes
 	mux.HandleFunc("POST /api/auth/users/register", apiHandler.RegisterUser)
@@ -81,7 +88,7 @@ func main() {
 	mux.HandleFunc("GET /api/hazards/{id}", apiHandler.GetRoadHazardByID)
 
 	// Assistance Requests (Wireframe: Right Form & Previous Calls Feed & Tracking)
-	mux.Handle("POST /api/requests", optAuthMw(http.HandlerFunc(apiHandler.SubmitAssistanceRequest)))
+	mux.Handle("POST /api/requests", authMw(victimGuard(http.HandlerFunc(apiHandler.SubmitAssistanceRequest))))
 	mux.HandleFunc("GET /api/requests", apiHandler.ListAssistanceRequests)
 	mux.HandleFunc("GET /api/requests/{id}", apiHandler.GetAssistanceRequestByID)
 	mux.HandleFunc("GET /api/requests/track/{code}", apiHandler.TrackAssistanceRequest)
@@ -95,10 +102,19 @@ func main() {
 	mux.Handle("POST /api/resources", authMw(providerGuard(http.HandlerFunc(apiHandler.CreateResource))))
 	mux.HandleFunc("GET /api/resources", apiHandler.ListResources)
 	mux.HandleFunc("GET /api/resources/{id}", apiHandler.GetResourceByID)
+	mux.Handle("PUT /api/resources/{id}", authMw(providerGuard(http.HandlerFunc(apiHandler.UpdateResource))))
+	mux.Handle("DELETE /api/resources/{id}", authMw(providerGuard(http.HandlerFunc(apiHandler.DeleteResource))))
+
+	// Provider Dispatch Pings (Real-Time Emergency Matching & Cascades)
+	mux.Handle("GET /api/provider/pings/active", authMw(providerGuard(http.HandlerFunc(apiHandler.GetActiveProviderPing))))
+	mux.Handle("POST /api/provider/pings/{id}/accept", authMw(providerGuard(http.HandlerFunc(apiHandler.AcceptPing))))
+	mux.Handle("POST /api/provider/pings/{id}/reject", authMw(providerGuard(http.HandlerFunc(apiHandler.RejectPing))))
+
+	// Admin / System Escalation Alerts
+	mux.HandleFunc("GET /api/admin/alerts", apiHandler.GetExhaustedAlerts)
 
 	// System & Health
 	mux.HandleFunc("GET /healthz", apiHandler.Healthz)
-
 
 	// 5. Wrap with Global Middleware (Logging -> CORS -> Mux)
 	handler := middleware.LoggingMiddleware(middleware.CORSMiddleware(mux))
@@ -117,6 +133,9 @@ func main() {
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Start background timeout worker for dispatch cascade
+	dispatchWorker.Start(shutdownCtx)
+
 	// 8. Start HTTP Server
 	go func() {
 		log.Printf("[Server] Starting Auth HTTP server on http://localhost%s\n", addr)
@@ -128,6 +147,8 @@ func main() {
 	// 9. Block until shutdown signal
 	<-shutdownCtx.Done()
 	log.Println("[Server] Shutdown signal received, gracefully terminating...")
+
+	dispatchWorker.Stop()
 
 	stopCtx, cancelStop := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelStop()

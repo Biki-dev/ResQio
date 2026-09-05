@@ -1,9 +1,12 @@
 import type {
+  ActivePing,
   AuthResponse,
   AssistanceRequestResponse,
   DisasterReportResponse,
+  ExhaustedAlert,
   LoginProviderRequest,
   LoginUserRequest,
+  MatchResponse,
   MutualAidItemRequest,
   MutualAidItemResponse,
   Provider,
@@ -123,10 +126,40 @@ async function get<TResponse>(
   }
 }
 
+export interface SessionData {
+  token: string;
+  accountType: "user" | "provider";
+  role?: string;
+  phone?: string;
+  fullName?: string;
+  accountId?: string;
+}
+
+export function parseJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    return JSON.parse(jsonPayload);
+  } catch {
+    return null;
+  }
+}
+
 export function saveSession(response: AuthResponse<unknown>) {
   if (typeof window !== "undefined") {
     localStorage.setItem("resqio_token", response.token);
     localStorage.setItem("resqio_account_type", response.account_type);
+    if (response.profile) {
+      localStorage.setItem("resqio_profile", JSON.stringify(response.profile));
+    }
   }
 }
 
@@ -134,17 +167,41 @@ export function clearSession() {
   if (typeof window !== "undefined") {
     localStorage.removeItem("resqio_token");
     localStorage.removeItem("resqio_account_type");
+    localStorage.removeItem("resqio_profile");
   }
 }
 
-export function getSession() {
+export function getSession(): SessionData | null {
   if (typeof window === "undefined") return null;
   const token = localStorage.getItem("resqio_token");
   const accountType = localStorage.getItem("resqio_account_type") as
     | "user"
     | "provider"
     | null;
-  return token && accountType ? { token, accountType } : null;
+  if (!token || !accountType) return null;
+
+  let profile: Record<string, unknown> | null = null;
+  try {
+    const raw = localStorage.getItem("resqio_profile");
+    if (raw) profile = JSON.parse(raw);
+  } catch {
+    profile = null;
+  }
+
+  const claims = parseJwtPayload(token);
+  const role = (profile?.role || claims?.role || "") as string;
+  const phone = (profile?.phone || profile?.ph_no || claims?.phone || "") as string;
+  const fullName = (profile?.full_name || profile?.name || "") as string;
+  const accountId = (profile?.id || claims?.account_id || claims?.sub || "") as string;
+
+  return {
+    token,
+    accountType,
+    role,
+    phone,
+    fullName,
+    accountId,
+  };
 }
 
 
@@ -271,9 +328,85 @@ export function getResources(limit = 20, offset = 0, category?: string) {
   return request<ResourceResponse[]>(`/resources?limit=${limit}&offset=${offset}${categoryParam}`);
 }
 
+export function getProviderResources(providerId: string, limit = 50, offset = 0) {
+  return request<ResourceResponse[]>(
+    `/resources?provider_id=${encodeURIComponent(providerId)}&limit=${limit}&offset=${offset}`
+  );
+}
+
 export function publishResource(payload: ResourceRequest) {
   return request<ResourceResponse, ResourceRequest>("/resources", {
     method: "POST",
     body: payload,
   });
 }
+
+export function createResource(payload: ResourceRequest) {
+  return publishResource(payload);
+}
+
+export function updateResource(id: string, payload: Partial<ResourceRequest>) {
+  return request<ResourceResponse, Partial<ResourceRequest>>(`/resources/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: payload,
+  });
+}
+
+export function deleteResource(id: string) {
+  return request<{ message: string }>(`/resources/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function uploadPhotoWithMulter(file: File): Promise<ApiResult<{ url: string }>> {
+  try {
+    const formData = new FormData();
+    formData.append("photo", file);
+
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      return {
+        success: false,
+        error: json?.error ?? `Upload failed with status ${res.status}`,
+      };
+    }
+
+    return {
+      success: true,
+      data: { url: json.url },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "File upload failed",
+    };
+  }
+}
+
+export function getActiveProviderPing() {
+  return request<{ ping: ActivePing | null }>("/provider/pings/active");
+}
+
+export function acceptDispatchPing(pingId: string) {
+  return request<MatchResponse>(`/provider/pings/${encodeURIComponent(pingId)}/accept`, {
+    method: "POST",
+  });
+}
+
+export function rejectDispatchPing(pingId: string) {
+  return request<{ message: string }>(`/provider/pings/${encodeURIComponent(pingId)}/reject`, {
+    method: "POST",
+  });
+}
+
+export function getAdminAlerts() {
+  return request<{ alerts: ExhaustedAlert[]; total: number }>("/admin/alerts");
+}
+
+

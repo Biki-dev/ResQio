@@ -44,7 +44,7 @@ All endpoints are served under `http://localhost:8080/api`:
 | **Submit Issue** (Left Form) | `POST` | `/hazards` | Optional Bearer JWT | Submits road hazard / incident with coordinates |
 | **Previous Issue Submissions** | `GET` | `/hazards` | Public | Paginated list of submitted hazards (`?limit=10&offset=0`) |
 | **View Issue Details** | `GET` | `/hazards/:id` | Public | Fetches single hazard by UUID |
-| **Submit Need / Call** (Right Form) | `POST` | `/requests` | Optional Bearer JWT | Submits assistance request; returns `tracking_code` |
+| **Submit Need / Call** (Right Form) | `POST` | `/requests` | Bearer JWT (`VICTIM` role) | Submits assistance request; returns `tracking_code` |
 | **Previous Calls Feed** | `GET` | `/requests` | Public | Paginated list of assistance requests (`?limit=10&offset=0`) |
 | **View Call Details** | `GET` | `/requests/:id` | Public | Fetches single assistance request by UUID |
 | **Track Request** | `GET` | `/requests/track/:code` | Public | Public tracking using `REQ-XXXXXXXX` code |

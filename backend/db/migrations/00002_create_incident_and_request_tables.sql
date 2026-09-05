@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS resources (
     status verification_status NOT NULL DEFAULT 'UNVERIFIED',
     location geometry NOT NULL,
     contact_phone VARCHAR(20),
+    image_url TEXT,
     embedding vector,
     last_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,8 +16,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pgvector/pgvector-go"
 
 	"go-sse-server/internal/database"
+	"go-sse-server/internal/dispatch"
 	"go-sse-server/internal/middleware"
 )
 
@@ -44,6 +48,11 @@ type AssistanceRequestResponse struct {
 	Description           string    `json:"description"`
 	Priority              string    `json:"priority"`
 	Status                string    `json:"status"`
+	DispatchStatus        string    `json:"dispatch_status"`
+	MatchedProviderID     *string   `json:"matched_provider_id,omitempty"`
+	MatchedProviderName   *string   `json:"matched_provider_name,omitempty"`
+	MatchedProviderPhone  *string   `json:"matched_provider_phone,omitempty"`
+	HandshakeCode         *string   `json:"handshake_code,omitempty"`
 	AssignedCoordinatorID *string   `json:"assigned_coordinator_id,omitempty"`
 	Location              string    `json:"location"`
 	AddressText           string    `json:"address_text"`
@@ -72,6 +81,11 @@ func (h *APIHandler) SubmitAssistanceRequest(w http.ResponseWriter, r *http.Requ
 	req.Category = strings.TrimSpace(req.Category)
 	req.Description = strings.TrimSpace(req.Description)
 	req.AddressText = strings.TrimSpace(req.AddressText)
+
+	claims, hasClaims := middleware.GetClaims(r.Context())
+	if req.PhoneNumber == "" && hasClaims && claims.Phone != "" {
+		req.PhoneNumber = claims.Phone
+	}
 
 	if req.Name == "" || req.PhoneNumber == "" {
 		respondWithError(w, http.StatusBadRequest, "name and phone_number are required")
@@ -146,6 +160,19 @@ func (h *APIHandler) SubmitAssistanceRequest(w http.ResponseWriter, r *http.Requ
 		fullDescription = fmt.Sprintf("[Identity: %s] %s", strings.TrimSpace(req.Identity), fullDescription)
 	}
 
+	var embVector pgvector.Vector
+	if h.mlClient != nil {
+		embedTarget := req.ThingsNeeded
+		if embedTarget == "" {
+			embedTarget = req.Description
+		}
+		if embedTarget != "" {
+			if floats, embErr := h.mlClient.GenerateEmbedding(r.Context(), embedTarget); embErr == nil && len(floats) > 0 {
+				embVector = pgvector.NewVector(floats)
+			}
+		}
+	}
+
 	createdReq, err := h.queries.CreateAssistanceRequest(r.Context(), database.CreateAssistanceRequestParams{
 		RequesterID:            requesterID,
 		TrackingCode:           trackingCode,
@@ -158,6 +185,7 @@ func (h *APIHandler) SubmitAssistanceRequest(w http.ResponseWriter, r *http.Requ
 		AddressText:            textToPgText(req.AddressText),
 		ContactPhoneEncrypted:  req.PhoneNumber,
 		RequesterNameEncrypted: req.Name,
+		Embedding:              embVector,
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create assistance request: %v", err))
@@ -170,8 +198,19 @@ func (h *APIHandler) SubmitAssistanceRequest(w http.ResponseWriter, r *http.Requ
 		requesterIDStr = &str
 	}
 
+	reqUUID := uuid.UUID(createdReq.ID.Bytes)
+	if h.coordinator != nil {
+		go func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if _, err := h.coordinator.TriggerDispatch(bgCtx, reqUUID); err != nil && !errors.Is(err, dispatch.ErrNoCandidates) {
+				log.Printf("[Dispatch] Initial dispatch error for request %s: %v\n", reqUUID, err)
+			}
+		}()
+	}
+
 	respondWithJSON(w, http.StatusCreated, AssistanceRequestResponse{
-		ID:             uuid.UUID(createdReq.ID.Bytes).String(),
+		ID:             reqUUID.String(),
 		RequesterID:    requesterIDStr,
 		TrackingCode:   createdReq.TrackingCode,
 		Category:       string(createdReq.Category),
@@ -179,6 +218,7 @@ func (h *APIHandler) SubmitAssistanceRequest(w http.ResponseWriter, r *http.Requ
 		Description:    pgTextToString(createdReq.Description),
 		Priority:       string(createdReq.Priority),
 		Status:         string(createdReq.Status),
+		DispatchStatus: string(createdReq.DispatchStatus),
 		Location:       createdReq.Location,
 		AddressText:    pgTextToString(createdReq.AddressText),
 		RequesterName:  createdReq.RequesterNameEncrypted,
@@ -242,6 +282,11 @@ func (h *APIHandler) ListAssistanceRequests(w http.ResponseWriter, r *http.Reque
 			str := uuid.UUID(req.AssignedCoordinatorID.Bytes).String()
 			coordIDStr = &str
 		}
+		var matchedProviderIDStr *string
+		if req.MatchedProviderID.Valid {
+			str := uuid.UUID(req.MatchedProviderID.Bytes).String()
+			matchedProviderIDStr = &str
+		}
 
 		res = append(res, AssistanceRequestResponse{
 			ID:                    uuid.UUID(req.ID.Bytes).String(),
@@ -252,6 +297,8 @@ func (h *APIHandler) ListAssistanceRequests(w http.ResponseWriter, r *http.Reque
 			Description:           pgTextToString(req.Description),
 			Priority:              string(req.Priority),
 			Status:                string(req.Status),
+			DispatchStatus:        string(req.DispatchStatus),
+			MatchedProviderID:     matchedProviderIDStr,
 			AssignedCoordinatorID: coordIDStr,
 			Location:              req.Location,
 			AddressText:           pgTextToString(req.AddressText),
@@ -293,6 +340,11 @@ func (h *APIHandler) GetAssistanceRequestByID(w http.ResponseWriter, r *http.Req
 		str := uuid.UUID(req.AssignedCoordinatorID.Bytes).String()
 		coordIDStr = &str
 	}
+	var matchedProviderIDStr *string
+	if req.MatchedProviderID.Valid {
+		str := uuid.UUID(req.MatchedProviderID.Bytes).String()
+		matchedProviderIDStr = &str
+	}
 
 	respondWithJSON(w, http.StatusOK, AssistanceRequestResponse{
 		ID:                    uuid.UUID(req.ID.Bytes).String(),
@@ -303,6 +355,8 @@ func (h *APIHandler) GetAssistanceRequestByID(w http.ResponseWriter, r *http.Req
 		Description:           pgTextToString(req.Description),
 		Priority:              string(req.Priority),
 		Status:                string(req.Status),
+		DispatchStatus:        string(req.DispatchStatus),
+		MatchedProviderID:     matchedProviderIDStr,
 		AssignedCoordinatorID: coordIDStr,
 		Location:              req.Location,
 		AddressText:           pgTextToString(req.AddressText),
@@ -340,6 +394,22 @@ func (h *APIHandler) TrackAssistanceRequest(w http.ResponseWriter, r *http.Reque
 		str := uuid.UUID(req.AssignedCoordinatorID.Bytes).String()
 		coordIDStr = &str
 	}
+	var matchedProviderIDStr *string
+	if req.MatchedProviderID.Valid {
+		str := uuid.UUID(req.MatchedProviderID.Bytes).String()
+		matchedProviderIDStr = &str
+	}
+
+	var matchedProviderName *string
+	var matchedProviderPhone *string
+	var handshakeCode *string
+	if req.DispatchStatus == database.DispatchStatusMATCHED {
+		if match, matchErr := h.queries.GetMatchByRequestID(r.Context(), req.ID); matchErr == nil {
+			handshakeCode = &match.HandshakeCode
+			matchedProviderName = &match.ProviderName
+			matchedProviderPhone = &match.ProviderPhone
+		}
+	}
 
 	respondWithJSON(w, http.StatusOK, AssistanceRequestResponse{
 		ID:                    uuid.UUID(req.ID.Bytes).String(),
@@ -350,6 +420,11 @@ func (h *APIHandler) TrackAssistanceRequest(w http.ResponseWriter, r *http.Reque
 		Description:           pgTextToString(req.Description),
 		Priority:              string(req.Priority),
 		Status:                string(req.Status),
+		DispatchStatus:        string(req.DispatchStatus),
+		MatchedProviderID:     matchedProviderIDStr,
+		MatchedProviderName:   matchedProviderName,
+		MatchedProviderPhone:  matchedProviderPhone,
+		HandshakeCode:         handshakeCode,
 		AssignedCoordinatorID: coordIDStr,
 		Location:              req.Location,
 		AddressText:           pgTextToString(req.AddressText),

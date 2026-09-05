@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Landmark, Phone, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Landmark, LogOut, ShieldCheck, UserCheck } from "lucide-react";
+import { clearSession, getSession, type SessionData } from "@/lib/api";
 
 interface NavbarProps {
   onGetStartedClick: () => void;
@@ -11,6 +12,17 @@ const FONT_STEPS = ["87.5%", "100%", "112.5%"] as const;
 
 export default function Navbar({ onGetStartedClick }: NavbarProps) {
   const [fontStep, setFontStep] = useState(1);
+  const [session, setSession] = useState<SessionData | null>(null);
+
+  useEffect(() => {
+    setSession(getSession());
+  }, []);
+
+  function handleSignOut() {
+    clearSession();
+    setSession(null);
+    window.location.href = "/";
+  }
 
   function applyFontSize(step: number) {
     const clamped = Math.max(0, Math.min(FONT_STEPS.length - 1, step));
@@ -20,13 +32,26 @@ export default function Navbar({ onGetStartedClick }: NavbarProps) {
 
   return (
     <header className="sticky top-0 z-40">
-      {/* Top strip: identity + accessibility controls, standard on
-          government portals */}
+      {/* Top strip: identity + accessibility controls */}
       <div className="bg-ink-deep text-paper/80">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-6 py-1.5 text-xs">
-         
+          <div className="flex items-center gap-2">
+            {session ? (
+              <span className="flex items-center gap-1.5 text-signal">
+                <UserCheck className="h-3.5 w-3.5" />
+                Signed in as {session.fullName || session.phone || session.accountType}
+                {session.role && (
+                  <span className="rounded bg-signal/20 px-1.5 py-0.2 text-[10px] font-bold uppercase tracking-wider text-signal">
+                    {session.role}
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span className="text-paper/60">Government Emergency Portal · Public System</span>
+            )}
+          </div>
+
           <div className="flex items-center gap-4 justify-end">
-            
             <div className="flex items-center gap-1" aria-label="Adjust text size">
               <span className="mr-1 hidden sm:inline">Text size:</span>
               <button
@@ -62,12 +87,6 @@ export default function Navbar({ onGetStartedClick }: NavbarProps) {
       <div className="border-b border-ink-border bg-paper">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
           <a href="/" className="flex items-center gap-3">
-            {/*
-              Placeholder mark only — swap for the authorized department
-              emblem before deployment. The National Emblem itself is
-              protected under the State Emblem of India Act and must not
-              be used without authorization.
-            */}
             <span className="flex h-11 w-11 items-center justify-center border border-ink/20 bg-ink text-paper">
               <Landmark className="h-6 w-6" strokeWidth={1.75} />
             </span>
@@ -80,7 +99,6 @@ export default function Navbar({ onGetStartedClick }: NavbarProps) {
               </span>
             </span>
           </a>
-
         </div>
       </div>
 
@@ -91,22 +109,42 @@ export default function Navbar({ onGetStartedClick }: NavbarProps) {
             <a href="/" className="px-4 py-3 hover:bg-ink-light">
               Home
             </a>
-        
+            <a href="/#response-portal" className="px-4 py-3 hover:bg-ink-light">
+              Response Desk
+            </a>
+            {session?.accountType === "provider" && (
+              <a href="/provider" className="px-4 py-3 font-semibold text-signal hover:bg-ink-light">
+                Provider Inventory
+              </a>
+            )}
             <a href="/admin" className="px-4 py-3 hover:bg-ink-light">
               Admin
             </a>
-            <a href="/login" className="px-4 py-3 hover:bg-ink-light">
-              Sign in
-            </a>
+            {session ? (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="flex items-center gap-1.5 px-4 py-3 text-alert hover:bg-ink-light"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign out
+              </button>
+            ) : (
+              <a href="/login" className="px-4 py-3 hover:bg-ink-light">
+                Sign in
+              </a>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={onGetStartedClick}
-            className="flex items-center gap-2 bg-signal px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-signal-dark"
-          >
-            <ShieldCheck className="h-4 w-4" strokeWidth={2.25} />
-            Register / Sign up
-          </button>
+          {!session && (
+            <button
+              type="button"
+              onClick={onGetStartedClick}
+              className="flex items-center gap-2 bg-signal px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-signal-dark"
+            >
+              <ShieldCheck className="h-4 w-4" strokeWidth={2.25} />
+              Register / Sign up
+            </button>
+          )}
         </div>
       </nav>
       <div className="flag-stripe" />

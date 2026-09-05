@@ -7,6 +7,8 @@ import {
   getMutualAidItems,
   getResources,
   getRoadHazards,
+  getSession,
+  type SessionData,
   submitAssistanceRequest,
   submitRoadHazard,
   trackAssistanceRequest,
@@ -49,6 +51,7 @@ function formatDate(value: string) {
 }
 
 export default function ResponsePortal() {
+  const [session, setSession] = useState<SessionData | null>(null);
   const [issues, setIssues] = useState<RoadHazardResponse[]>([]);
   const [requests, setRequests] = useState<AssistanceRequestResponse[]>([]);
   const [aidItems, setAidItems] = useState<MutualAidItemResponse[]>([]);
@@ -78,6 +81,18 @@ export default function ResponsePortal() {
 
   useEffect(() => {
     void refreshFeeds();
+    const currentSession = getSession();
+    setSession(currentSession);
+    if (currentSession) {
+      if (currentSession.fullName) {
+        setNeed((prev) => ({ ...prev, name: prev.name || currentSession.fullName || "" }));
+        setIssue((prev) => ({ ...prev, name: prev.name || currentSession.fullName || "" }));
+      }
+      if (currentSession.phone) {
+        setNeed((prev) => ({ ...prev, phone_number: prev.phone_number || currentSession.phone || "" }));
+        setIssue((prev) => ({ ...prev, phone_number: prev.phone_number || currentSession.phone || "" }));
+      }
+    }
   }, []);
 
   async function handleIssueSubmit(event: FormEvent<HTMLFormElement>) {
@@ -93,7 +108,11 @@ export default function ResponsePortal() {
         ...location,
       });
       if (!result.success) throw new Error(result.error);
-      setIssue(initialIssue);
+      setIssue((prev) => ({
+        ...initialIssue,
+        name: session?.fullName || "",
+        phone_number: session?.phone || "",
+      }));
       setMessage("Issue submitted. Thank you for helping responders verify the situation.");
       await refreshFeeds();
     } catch (error) {
@@ -105,8 +124,19 @@ export default function ResponsePortal() {
 
   async function handleNeedSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSubmitting(true);
     setMessage("");
+
+    if (!session) {
+      setMessage("Authentication required: You must be signed in with a VICTIM account to submit an emergency assistance request. Please sign in or register.");
+      return;
+    }
+
+    if (session.role?.toUpperCase() !== "VICTIM") {
+      setMessage(`Access restricted: Your current account role is '${session.role || session.accountType}'. Only users registered with the 'VICTIM' role can submit assistance calls.`);
+      return;
+    }
+
+    setSubmitting(true);
     try {
       const location = await requestDeviceLocation();
       const result = await submitAssistanceRequest({
@@ -115,8 +145,12 @@ export default function ResponsePortal() {
         ...location,
       });
       if (!result.success) throw new Error(result.error);
-      setNeed(initialNeed);
-      setMessage(`Request registered. Tracking code: ${result.data.tracking_code}`);
+      setNeed({
+        ...initialNeed,
+        name: session?.fullName || "",
+        phone_number: session?.phone || "",
+      });
+      setMessage(`Assistance request registered successfully! Tracking code: ${result.data.tracking_code}`);
       await refreshFeeds();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to register the request.");
@@ -156,7 +190,47 @@ export default function ResponsePortal() {
           </form>
 
           <form onSubmit={handleNeedSubmit} className="border border-ink-border/25 bg-paper p-6">
-            <h3 className="font-display text-2xl text-ink">Ask for assistance</h3>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="font-display text-2xl text-ink">Ask for assistance</h3>
+                <p className="mt-1 text-xs text-slate">
+                  Emergency aid desk. Restricted to verified <strong className="text-ink">VICTIM</strong> accounts.
+                </p>
+              </div>
+            </div>
+
+            {!session ? (
+              <div className="mt-3 rounded border border-signal/60 bg-signal/15 p-3 text-xs text-ink">
+                <div className="font-semibold text-ink">Sign-in Required</div>
+                <p className="mt-0.5 text-slate">
+                  You must be signed in with a VICTIM account to request immediate assistance.
+                </p>
+                <div className="mt-2.5 flex items-center gap-2">
+                  <a href="/login" className="rounded bg-signal px-3 py-1 font-semibold text-ink hover:bg-signal-dark">
+                    Sign in
+                  </a>
+                  <a href="/register/user" className="rounded border border-ink/30 px-3 py-1 font-medium text-ink hover:bg-paper-dim">
+                    Register as Victim
+                  </a>
+                </div>
+              </div>
+            ) : session.role?.toUpperCase() === "VICTIM" ? (
+              <div className="mt-3 flex items-center gap-2 rounded border border-verified/40 bg-verified/10 px-3 py-2 text-xs text-ink">
+                <span className="font-semibold text-verified">✓ Verified Victim Account:</span>
+                <span>{session.fullName || session.phone}</span>
+              </div>
+            ) : (
+              <div className="mt-3 rounded border border-alert/40 bg-alert/10 p-3 text-xs text-alert">
+                <div className="font-semibold">Role Restriction</div>
+                <p className="mt-0.5">
+                  Signed in as <strong>{session.role || session.accountType}</strong>. Emergency assistance requests require an account with the <strong>VICTIM</strong> role.
+                </p>
+                <a href="/register/user" className="mt-1.5 inline-block font-semibold underline">
+                  Register as Victim
+                </a>
+              </div>
+            )}
+
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-1.5"><span className="text-sm font-medium text-ink">Your name</span><input required value={need.name} onChange={(e) => setNeed({ ...need, name: e.target.value })} className="border border-ink-border/30 bg-paper px-3 py-2 text-sm" /></label>
               <label className="flex flex-col gap-1.5"><span className="text-sm font-medium text-ink">Phone number</span><input required value={need.phone_number} onChange={(e) => setNeed({ ...need, phone_number: e.target.value })} className="border border-ink-border/30 bg-paper px-3 py-2 text-sm" /></label>
@@ -174,7 +248,106 @@ export default function ResponsePortal() {
           <label className="flex flex-1 flex-col gap-1.5"><span className="text-sm font-medium text-ink">Track an assistance request</span><input required placeholder="REQ-XXXXXXXX" value={trackingCode} onChange={(e) => setTrackingCode(e.target.value)} className="border border-ink-border/30 bg-paper px-3 py-2 text-sm" /></label>
           <button className="border border-ink bg-ink px-5 py-2.5 text-sm font-semibold text-paper">Check status</button>
         </form>
-        {trackedRequest && <div className="border border-verified/30 bg-verified/10 p-4 text-sm text-ink"><strong>{trackedRequest.tracking_code}</strong> is <strong>{trackedRequest.status}</strong> with {trackedRequest.category.toLowerCase()} support requested for {trackedRequest.quantity_needed}.</div>}
+        {trackedRequest && (
+          <div className="mt-4 rounded-xl border border-ink-border/40 bg-paper p-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-border/20 pb-4">
+              <div>
+                <span className="text-xs uppercase tracking-wider text-slate">Request Tracking ID</span>
+                <h4 className="font-mono text-xl font-bold text-ink">{trackedRequest.tracking_code}</h4>
+              </div>
+
+              {/* Status Badge */}
+              <div className="flex items-center gap-2">
+                {trackedRequest.dispatch_status === "MATCHED" ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3.5 py-1 text-xs font-bold text-emerald-600 border border-emerald-500/30">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
+                    MATCHED & DISPATCHED
+                  </span>
+                ) : trackedRequest.dispatch_status === "DISPATCHING" ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/15 px-3.5 py-1 text-xs font-bold text-blue-600 border border-blue-500/30">
+                    <span className="h-2 w-2 animate-ping rounded-full bg-blue-500"></span>
+                    CONTACTING SUPPLIERS...
+                  </span>
+                ) : trackedRequest.dispatch_status === "EXHAUSTED" ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/15 px-3.5 py-1 text-xs font-bold text-red-600 border border-red-500/30">
+                    <span className="h-2 w-2 rounded-full bg-red-500"></span>
+                    ESCALATED TO OPERATORS
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3.5 py-1 text-xs font-bold text-amber-600 border border-amber-500/30">
+                    <span className="h-2 w-2 rounded-full bg-amber-500"></span>
+                    {trackedRequest.status}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Matched Details / Handshake Code */}
+            {trackedRequest.dispatch_status === "MATCHED" && (
+              <div className="mt-5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-5">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <span className="text-xs font-semibold uppercase tracking-wider text-emerald-600">Assigned Provider</span>
+                    <p className="font-display text-lg font-bold text-ink">
+                      {trackedRequest.matched_provider_name || "Verified Local Responder"}
+                    </p>
+                    {trackedRequest.matched_provider_phone && (
+                      <p className="text-xs text-slate mt-0.5">
+                        Contact:{" "}
+                        <a
+                          href={`tel:${trackedRequest.matched_provider_phone}`}
+                          className="font-semibold text-emerald-600 hover:underline"
+                        >
+                          {trackedRequest.matched_provider_phone}
+                        </a>
+                      </p>
+                    )}
+                  </div>
+
+                  {trackedRequest.handshake_code && (
+                    <div className="flex flex-col items-start sm:items-end">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-emerald-600">
+                        Delivery Handshake Code
+                      </span>
+                      <div className="mt-1 rounded-md border border-emerald-500 bg-paper px-4 py-1.5 font-mono text-xl font-black tracking-widest text-emerald-600 shadow-sm">
+                        {trackedRequest.handshake_code}
+                      </div>
+                      <span className="text-[10px] text-slate mt-1">Show this code upon physical handover</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {trackedRequest.dispatch_status === "EXHAUSTED" && (
+              <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-xs text-slate">
+                <p className="font-semibold text-red-600">
+                  ⚠ All immediate automated local inventory was exhausted.
+                </p>
+                <p className="mt-1">
+                  Your request has been escalated to regional relief coordinators with top priority for manual supplier routing.
+                </p>
+              </div>
+            )}
+
+            <div className="mt-4 grid gap-3 text-xs text-slate sm:grid-cols-3">
+              <div>
+                <span className="font-medium text-ink">Category:</span> {trackedRequest.category}
+              </div>
+              <div>
+                <span className="font-medium text-ink">Quantity:</span> {trackedRequest.quantity_needed} units
+              </div>
+              <div>
+                <span className="font-medium text-ink">Priority:</span> {trackedRequest.priority}
+              </div>
+            </div>
+            {trackedRequest.description && (
+              <p className="mt-2 text-xs text-slate">
+                <span className="font-medium text-ink">Notes:</span> {trackedRequest.description}
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="mt-12 grid gap-8 md:grid-cols-2">
           <Feed title="Recent issues" loading={loading}>
