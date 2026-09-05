@@ -5,6 +5,7 @@ import Navbar from "@/components/Navbar";
 import HeroSection from "@/components/HeroSection";
 import RegistrationModal from "@/components/RegistrationModal";
 import Footer from "@/components/Footer";
+import ResponsePortal from "@/components/ResponsePortal";
 
 
 export default function LandingPage() {
@@ -15,6 +16,7 @@ export default function LandingPage() {
       <Navbar onGetStartedClick={() => setIsModalOpen(true)} />
    
       <HeroSection onGetStartedClick={() => setIsModalOpen(true)} />
+      <ResponsePortal />
       <Footer />
 
       <RegistrationModal
