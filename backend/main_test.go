@@ -38,17 +38,47 @@ func setupTestServer(t *testing.T) (http.Handler, *pgxpool.Pool) {
 
 	mux := http.NewServeMux()
 	authMw := middleware.AuthMiddleware(cfg.JWTSecret)
+	optAuthMw := middleware.OptionalAuthMiddleware(cfg.JWTSecret)
 	userGuard := middleware.RequireAccountType(auth.AccountTypeUser)
 	providerGuard := middleware.RequireAccountType(auth.AccountTypeProvider)
 
+	// User Routes
 	mux.HandleFunc("POST /api/auth/users/register", apiHandler.RegisterUser)
 	mux.HandleFunc("POST /api/auth/users/login", apiHandler.LoginUser)
 	mux.Handle("GET /api/auth/users/me", authMw(userGuard(http.HandlerFunc(apiHandler.GetUserMe))))
 
+	// Provider Routes
 	mux.HandleFunc("POST /api/auth/providers/register", apiHandler.RegisterProvider)
 	mux.HandleFunc("POST /api/auth/providers/login", apiHandler.LoginProvider)
 	mux.Handle("GET /api/auth/providers/me", authMw(providerGuard(http.HandlerFunc(apiHandler.GetProviderMe))))
 
+	// Disaster Reporting Portal
+	mux.Handle("POST /api/disaster-reports", optAuthMw(http.HandlerFunc(apiHandler.CreateDisasterReport)))
+	mux.HandleFunc("GET /api/disaster-reports", apiHandler.ListDisasterReports)
+	mux.HandleFunc("GET /api/disaster-reports/{id}", apiHandler.GetDisasterReportByID)
+
+	// Road Hazards / Issue Submission
+	mux.Handle("POST /api/hazards", optAuthMw(http.HandlerFunc(apiHandler.SubmitRoadHazard)))
+	mux.HandleFunc("GET /api/hazards", apiHandler.ListRoadHazards)
+	mux.HandleFunc("GET /api/hazards/{id}", apiHandler.GetRoadHazardByID)
+
+	// Assistance Requests
+	mux.Handle("POST /api/requests", optAuthMw(http.HandlerFunc(apiHandler.SubmitAssistanceRequest)))
+	mux.HandleFunc("GET /api/requests", apiHandler.ListAssistanceRequests)
+	mux.HandleFunc("GET /api/requests/{id}", apiHandler.GetAssistanceRequestByID)
+	mux.HandleFunc("GET /api/requests/track/{code}", apiHandler.TrackAssistanceRequest)
+
+	// Community Mutual Aid Items
+	mux.Handle("POST /api/mutual-aid", authMw(userGuard(http.HandlerFunc(apiHandler.CreateMutualAidItem))))
+	mux.HandleFunc("GET /api/mutual-aid", apiHandler.ListMutualAidItems)
+	mux.Handle("POST /api/mutual-aid/{id}/claim", authMw(userGuard(http.HandlerFunc(apiHandler.ClaimMutualAidItem))))
+
+	// Provider Resources
+	mux.Handle("POST /api/resources", authMw(providerGuard(http.HandlerFunc(apiHandler.CreateResource))))
+	mux.HandleFunc("GET /api/resources", apiHandler.ListResources)
+	mux.HandleFunc("GET /api/resources/{id}", apiHandler.GetResourceByID)
+
+	// System & Health
 	mux.HandleFunc("GET /healthz", apiHandler.Healthz)
 
 	return middleware.CORSMiddleware(mux), pool
@@ -292,3 +322,328 @@ func TestProviderAuthFlow(t *testing.T) {
 		t.Fatalf("expected status 403 Forbidden when provider accesses user /me, got: %d", crossRec.Code)
 	}
 }
+
+func TestDisasterReportEndpoints(t *testing.T) {
+	handler, pool := setupTestServer(t)
+	if pool != nil {
+		defer pool.Close()
+	}
+
+	// 1. Submit Disaster Report with 1536d vector
+	lat := 19.0760
+	lng := 72.8777
+	dummyEmbedding := make([]float32, 1536)
+	for i := range dummyEmbedding {
+		dummyEmbedding[i] = 0.05
+	}
+
+	payload := map[string]interface{}{
+		"embedding": dummyEmbedding,
+		"latitude":  lat,
+		"longitude": lng,
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/api/disaster-reports", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on disaster report submission, got: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var createdReport handlers.DisasterReportResponse
+	if err := json.NewDecoder(rec.Body).Decode(&createdReport); err != nil {
+		t.Fatalf("failed to decode created report: %v", err)
+	}
+
+	if createdReport.ID == "" {
+		t.Fatal("expected non-empty ID for disaster report")
+	}
+
+	// 2. Fetch Disaster Reports List
+	listReq := httptest.NewRequest("GET", "/api/disaster-reports?limit=10", nil)
+	listRec := httptest.NewRecorder()
+	handler.ServeHTTP(listRec, listReq)
+
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on listing disaster reports, got: %d", listRec.Code)
+	}
+
+	var reports []handlers.DisasterReportResponse
+	if err := json.NewDecoder(listRec.Body).Decode(&reports); err != nil {
+		t.Fatalf("failed to decode disaster reports list: %v", err)
+	}
+	if len(reports) == 0 {
+		t.Fatal("expected at least 1 disaster report in list")
+	}
+
+	// 3. Get Disaster Report by ID
+	getReq := httptest.NewRequest("GET", "/api/disaster-reports/"+createdReport.ID, nil)
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, getReq)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on get disaster report by ID, got: %d", getRec.Code)
+	}
+}
+
+func TestRoadHazardFormEndpoints(t *testing.T) {
+	handler, pool := setupTestServer(t)
+	if pool != nil {
+		defer pool.Close()
+	}
+
+	lat := 28.6139
+	lng := 77.2090
+	payload := handlers.SubmitRoadHazardRequest{
+		Name:        "Rohan Gupta",
+		PhoneNumber: "+919811223344",
+		HazardType:  "FLOODED_ROAD",
+		Severity:    "HIGH",
+		Description: "Water logging up to 3 feet near Main Market underpass",
+		Latitude:    &lat,
+		Longitude:   &lng,
+	}
+
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/api/hazards", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on hazard submission, got: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var hazardResp handlers.RoadHazardResponse
+	if err := json.NewDecoder(rec.Body).Decode(&hazardResp); err != nil {
+		t.Fatalf("failed to decode road hazard response: %v", err)
+	}
+
+	if hazardResp.Name != "Rohan Gupta" {
+		t.Errorf("expected name Rohan Gupta, got: %s", hazardResp.Name)
+	}
+	if hazardResp.HazardType != "FLOODED_ROAD" {
+		t.Errorf("expected hazard type FLOODED_ROAD, got: %s", hazardResp.HazardType)
+	}
+
+	// Fetch Feed: "Previous issue submittion"
+	feedReq := httptest.NewRequest("GET", "/api/hazards?limit=5", nil)
+	feedRec := httptest.NewRecorder()
+	handler.ServeHTTP(feedRec, feedReq)
+
+	if feedRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on previous issue submissions feed, got: %d", feedRec.Code)
+	}
+
+	// Fetch Detail View
+	viewReq := httptest.NewRequest("GET", "/api/hazards/"+hazardResp.ID, nil)
+	viewRec := httptest.NewRecorder()
+	handler.ServeHTTP(viewRec, viewReq)
+
+	if viewRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on get hazard view, got: %d", viewRec.Code)
+	}
+}
+
+func TestAssistanceRequestFormAndTracking(t *testing.T) {
+	handler, pool := setupTestServer(t)
+	if pool != nil {
+		defer pool.Close()
+	}
+
+	lat := 12.9716
+	lng := 77.5946
+	payload := handlers.SubmitAssistanceRequest{
+		Name:         "Priya Nair",
+		Identity:     "GOVT-ID-778899",
+		PhoneNumber:  "+919876112233",
+		ThingsNeeded: "Water & Dry Rations",
+		Category:     "WATER",
+		Amount:       50,
+		Description:  "Bottled drinking water needed for 50 people at community hall",
+		Latitude:     &lat,
+		Longitude:    &lng,
+		AddressText:  "Community Hall, Sector 4",
+		Priority:     "CRITICAL",
+	}
+
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest("POST", "/api/requests", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on assistance request submission, got: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var reqResp handlers.AssistanceRequestResponse
+	if err := json.NewDecoder(rec.Body).Decode(&reqResp); err != nil {
+		t.Fatalf("failed to decode assistance request response: %v", err)
+	}
+
+	if reqResp.TrackingCode == "" {
+		t.Fatal("expected non-empty tracking code")
+	}
+	if reqResp.Category != "WATER" {
+		t.Errorf("expected category WATER, got: %s", reqResp.Category)
+	}
+	if reqResp.QuantityNeeded != 50 {
+		t.Errorf("expected quantity 50, got: %d", reqResp.QuantityNeeded)
+	}
+
+	// Fetch Feed: "Previous calls"
+	feedReq := httptest.NewRequest("GET", "/api/requests?limit=5", nil)
+	feedRec := httptest.NewRecorder()
+	handler.ServeHTTP(feedRec, feedReq)
+
+	if feedRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on previous calls feed, got: %d", feedRec.Code)
+	}
+
+	// Fetch View by ID
+	viewReq := httptest.NewRequest("GET", "/api/requests/"+reqResp.ID, nil)
+	viewRec := httptest.NewRecorder()
+	handler.ServeHTTP(viewRec, viewReq)
+
+	if viewRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on request view by ID, got: %d", viewRec.Code)
+	}
+
+	// Track by tracking code
+	trackReq := httptest.NewRequest("GET", "/api/requests/track/"+reqResp.TrackingCode, nil)
+	trackRec := httptest.NewRecorder()
+	handler.ServeHTTP(trackRec, trackReq)
+
+	if trackRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on tracking request, got: %d (%s)", trackRec.Code, trackRec.Body.String())
+	}
+}
+
+func TestMutualAidAndResources(t *testing.T) {
+	handler, pool := setupTestServer(t)
+	if pool != nil {
+		defer pool.Close()
+	}
+
+	// 1. Register User to get token
+	phone := fmt.Sprintf("+91%010d", time.Now().UnixNano()%10000000000)
+	userRegPayload := map[string]string{
+		"phone":     phone,
+		"password":  "SecureUser123!",
+		"full_name": "Mutual Aid Volunteer",
+	}
+	body, _ := json.Marshal(userRegPayload)
+	regReq := httptest.NewRequest("POST", "/api/auth/users/register", bytes.NewReader(body))
+	regReq.Header.Set("Content-Type", "application/json")
+	regRec := httptest.NewRecorder()
+	handler.ServeHTTP(regRec, regReq)
+
+	var authResp handlers.AuthResponse
+	_ = json.NewDecoder(regRec.Body).Decode(&authResp)
+	userToken := authResp.Token
+
+	// 2. Create Mutual Aid Item (Protected)
+	aidPayload := handlers.CreateMutualAidRequest{
+		ItemName:    "First Aid Kit",
+		Quantity:    5,
+		Description: "Unopened antiseptic bandages and basic medicines",
+		Location:    "POINT(72.8777 19.0760)",
+	}
+	aidBody, _ := json.Marshal(aidPayload)
+	aidReq := httptest.NewRequest("POST", "/api/mutual-aid", bytes.NewReader(aidBody))
+	aidReq.Header.Set("Content-Type", "application/json")
+	aidReq.Header.Set("Authorization", "Bearer "+userToken)
+	aidRec := httptest.NewRecorder()
+	handler.ServeHTTP(aidRec, aidReq)
+
+	if aidRec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on mutual aid creation, got: %d (%s)", aidRec.Code, aidRec.Body.String())
+	}
+
+	var aidResp handlers.MutualAidResponse
+	_ = json.NewDecoder(aidRec.Body).Decode(&aidResp)
+
+	// List Available Mutual Aid Items
+	listAidReq := httptest.NewRequest("GET", "/api/mutual-aid?available=true", nil)
+	listAidRec := httptest.NewRecorder()
+	handler.ServeHTTP(listAidRec, listAidReq)
+
+	if listAidRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on list mutual aid items, got: %d", listAidRec.Code)
+	}
+
+	// 3. Register Provider to create resource
+	email := fmt.Sprintf("ngo_%d@relief.org", time.Now().UnixNano()%1000000)
+	provPhone := fmt.Sprintf("+91%010d", (time.Now().UnixNano()+1)%10000000000)
+	provRegPayload := map[string]string{
+		"type":              "ORGANISATION",
+		"name":              "City Relief Foundation",
+		"password":          "ProviderPass123!",
+		"govt_id":           "GOVT-7788",
+		"email":             email,
+		"ph_no":             provPhone,
+		"state":             "Delhi",
+		"dist":              "New Delhi",
+		"location":          "POINT(77.2090 28.6139)",
+	}
+	provBody, _ := json.Marshal(provRegPayload)
+	provRegReq := httptest.NewRequest("POST", "/api/auth/providers/register", bytes.NewReader(provBody))
+	provRegReq.Header.Set("Content-Type", "application/json")
+	provRegRec := httptest.NewRecorder()
+	handler.ServeHTTP(provRegRec, provRegReq)
+
+	var provAuthResp handlers.AuthResponse
+	_ = json.NewDecoder(provRegRec.Body).Decode(&provAuthResp)
+	provToken := provAuthResp.Token
+
+	// 4. Create Provider Resource
+	resPayload := handlers.CreateResourceRequest{
+		Title:           "Emergency Water Supply Tanker",
+		Description:     "10,000 Liters of potable drinking water",
+		Category:        "WATER",
+		TotalCapacity:   10000,
+		CurrentCapacity: 10000,
+		Unit:            "Liters",
+		Location:        "POINT(77.2090 28.6139)",
+		ContactPhone:    provPhone,
+	}
+	resBody, _ := json.Marshal(resPayload)
+	resReq := httptest.NewRequest("POST", "/api/resources", bytes.NewReader(resBody))
+	resReq.Header.Set("Content-Type", "application/json")
+	resReq.Header.Set("Authorization", "Bearer "+provToken)
+	resRec := httptest.NewRecorder()
+	handler.ServeHTTP(resRec, resReq)
+
+	if resRec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on resource creation, got: %d (%s)", resRec.Code, resRec.Body.String())
+	}
+
+	var resCreated handlers.ResourceResponse
+	_ = json.NewDecoder(resRec.Body).Decode(&resCreated)
+
+	// 5. List Resources
+	listResReq := httptest.NewRequest("GET", "/api/resources?category=WATER", nil)
+	listResRec := httptest.NewRecorder()
+	handler.ServeHTTP(listResRec, listResReq)
+
+	if listResRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on list resources, got: %d", listResRec.Code)
+	}
+
+	// 6. View Resource by ID
+	viewResReq := httptest.NewRequest("GET", "/api/resources/"+resCreated.ID, nil)
+	viewResRec := httptest.NewRecorder()
+	handler.ServeHTTP(viewResRec, viewResReq)
+
+	if viewResRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on get resource by ID, got: %d", viewResRec.Code)
+	}
+}
+
+

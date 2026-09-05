@@ -91,7 +91,31 @@ func AuthMiddleware(secret string) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireAccountType enforces that the caller is of a specific account type ('user' or 'provider').
+// OptionalAuthMiddleware validates JWT Bearer token if present and attaches claims to the context.
+// If the Authorization header is absent, the request proceeds unauthenticated.
+func OptionalAuthMiddleware(secret string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+				if claims, err := auth.ValidateToken(parts[1], secret); err == nil {
+					ctx := context.WithValue(r.Context(), ClaimsContextKey, claims)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func RequireAccountType(expectedType auth.AccountType) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

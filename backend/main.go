@@ -56,6 +56,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	authMw := middleware.AuthMiddleware(cfg.JWTSecret)
+	optAuthMw := middleware.OptionalAuthMiddleware(cfg.JWTSecret)
 	userGuard := middleware.RequireAccountType(auth.AccountTypeUser)
 	providerGuard := middleware.RequireAccountType(auth.AccountTypeProvider)
 
@@ -69,8 +70,35 @@ func main() {
 	mux.HandleFunc("POST /api/auth/providers/login", apiHandler.LoginProvider)
 	mux.Handle("GET /api/auth/providers/me", authMw(providerGuard(http.HandlerFunc(apiHandler.GetProviderMe))))
 
+	// Disaster Reporting Portal (Image Embedding & Location)
+	mux.Handle("POST /api/disaster-reports", optAuthMw(http.HandlerFunc(apiHandler.CreateDisasterReport)))
+	mux.HandleFunc("GET /api/disaster-reports", apiHandler.ListDisasterReports)
+	mux.HandleFunc("GET /api/disaster-reports/{id}", apiHandler.GetDisasterReportByID)
+
+	// Road Hazards / Issue Submission (Wireframe: Left Form & Previous Submissions Feed)
+	mux.Handle("POST /api/hazards", optAuthMw(http.HandlerFunc(apiHandler.SubmitRoadHazard)))
+	mux.HandleFunc("GET /api/hazards", apiHandler.ListRoadHazards)
+	mux.HandleFunc("GET /api/hazards/{id}", apiHandler.GetRoadHazardByID)
+
+	// Assistance Requests (Wireframe: Right Form & Previous Calls Feed & Tracking)
+	mux.Handle("POST /api/requests", optAuthMw(http.HandlerFunc(apiHandler.SubmitAssistanceRequest)))
+	mux.HandleFunc("GET /api/requests", apiHandler.ListAssistanceRequests)
+	mux.HandleFunc("GET /api/requests/{id}", apiHandler.GetAssistanceRequestByID)
+	mux.HandleFunc("GET /api/requests/track/{code}", apiHandler.TrackAssistanceRequest)
+
+	// Community Mutual Aid Items
+	mux.Handle("POST /api/mutual-aid", authMw(userGuard(http.HandlerFunc(apiHandler.CreateMutualAidItem))))
+	mux.HandleFunc("GET /api/mutual-aid", apiHandler.ListMutualAidItems)
+	mux.Handle("POST /api/mutual-aid/{id}/claim", authMw(userGuard(http.HandlerFunc(apiHandler.ClaimMutualAidItem))))
+
+	// Provider Resource Capacities & Inventory
+	mux.Handle("POST /api/resources", authMw(providerGuard(http.HandlerFunc(apiHandler.CreateResource))))
+	mux.HandleFunc("GET /api/resources", apiHandler.ListResources)
+	mux.HandleFunc("GET /api/resources/{id}", apiHandler.GetResourceByID)
+
 	// System & Health
 	mux.HandleFunc("GET /healthz", apiHandler.Healthz)
+
 
 	// 5. Wrap with Global Middleware (Logging -> CORS -> Mux)
 	handler := middleware.LoggingMiddleware(middleware.CORSMiddleware(mux))

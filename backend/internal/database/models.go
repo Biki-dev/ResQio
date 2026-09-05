@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pgvector/pgvector-go"
 )
 
 type ProviderType string
@@ -51,6 +52,142 @@ func (ns NullProviderType) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.ProviderType), nil
+}
+
+type RequestPriority string
+
+const (
+	RequestPriorityLOW      RequestPriority = "LOW"
+	RequestPriorityMEDIUM   RequestPriority = "MEDIUM"
+	RequestPriorityHIGH     RequestPriority = "HIGH"
+	RequestPriorityCRITICAL RequestPriority = "CRITICAL"
+)
+
+func (e *RequestPriority) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RequestPriority(s)
+	case string:
+		*e = RequestPriority(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RequestPriority: %T", src)
+	}
+	return nil
+}
+
+type NullRequestPriority struct {
+	RequestPriority RequestPriority
+	Valid           bool // Valid is true if RequestPriority is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRequestPriority) Scan(value interface{}) error {
+	if value == nil {
+		ns.RequestPriority, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RequestPriority.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRequestPriority) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RequestPriority), nil
+}
+
+type RequestStatus string
+
+const (
+	RequestStatusSUBMITTED    RequestStatus = "SUBMITTED"
+	RequestStatusACKNOWLEDGED RequestStatus = "ACKNOWLEDGED"
+	RequestStatusINPROGRESS   RequestStatus = "IN_PROGRESS"
+	RequestStatusFULFILLED    RequestStatus = "FULFILLED"
+	RequestStatusCANCELLED    RequestStatus = "CANCELLED"
+)
+
+func (e *RequestStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RequestStatus(s)
+	case string:
+		*e = RequestStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RequestStatus: %T", src)
+	}
+	return nil
+}
+
+type NullRequestStatus struct {
+	RequestStatus RequestStatus
+	Valid         bool // Valid is true if RequestStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRequestStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.RequestStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RequestStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRequestStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RequestStatus), nil
+}
+
+type ResourceCategory string
+
+const (
+	ResourceCategoryFOOD      ResourceCategory = "FOOD"
+	ResourceCategoryWATER     ResourceCategory = "WATER"
+	ResourceCategoryMEDICINE  ResourceCategory = "MEDICINE"
+	ResourceCategorySHELTER   ResourceCategory = "SHELTER"
+	ResourceCategoryEQUIPMENT ResourceCategory = "EQUIPMENT"
+	ResourceCategoryVOLUNTEER ResourceCategory = "VOLUNTEER"
+	ResourceCategoryOTHER     ResourceCategory = "OTHER"
+)
+
+func (e *ResourceCategory) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ResourceCategory(s)
+	case string:
+		*e = ResourceCategory(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ResourceCategory: %T", src)
+	}
+	return nil
+}
+
+type NullResourceCategory struct {
+	ResourceCategory ResourceCategory
+	Valid            bool // Valid is true if ResourceCategory is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullResourceCategory) Scan(value interface{}) error {
+	if value == nil {
+		ns.ResourceCategory, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ResourceCategory.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullResourceCategory) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ResourceCategory), nil
 }
 
 type UserRole string
@@ -99,6 +236,89 @@ func (ns NullUserRole) Value() (driver.Value, error) {
 	return string(ns.UserRole), nil
 }
 
+type VerificationStatus string
+
+const (
+	VerificationStatusUNVERIFIED  VerificationStatus = "UNVERIFIED"
+	VerificationStatusVERIFIED    VerificationStatus = "VERIFIED"
+	VerificationStatusUNAVAILABLE VerificationStatus = "UNAVAILABLE"
+	VerificationStatusOUTDATED    VerificationStatus = "OUTDATED"
+)
+
+func (e *VerificationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = VerificationStatus(s)
+	case string:
+		*e = VerificationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for VerificationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullVerificationStatus struct {
+	VerificationStatus VerificationStatus
+	Valid              bool // Valid is true if VerificationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullVerificationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.VerificationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.VerificationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullVerificationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.VerificationStatus), nil
+}
+
+type AssistanceRequest struct {
+	ID                     pgtype.UUID
+	RequesterID            pgtype.UUID
+	TrackingCode           string
+	Category               ResourceCategory
+	QuantityNeeded         int32
+	Description            pgtype.Text
+	Priority               RequestPriority
+	Status                 RequestStatus
+	AssignedCoordinatorID  pgtype.UUID
+	Location               string
+	AddressText            pgtype.Text
+	ContactPhoneEncrypted  string
+	RequesterNameEncrypted string
+	Embedding              pgvector.Vector
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+}
+
+type DisasterReport struct {
+	ID         pgtype.UUID
+	ReporterID pgtype.UUID
+	Embedding  string
+	Location   string
+	CreatedAt  pgtype.Timestamptz
+}
+
+type MutualAidItem struct {
+	ID              pgtype.UUID
+	UserID          pgtype.UUID
+	ItemName        string
+	Quantity        int32
+	Description     pgtype.Text
+	Location        string
+	IsClaimed       bool
+	ClaimedByUserID pgtype.UUID
+	CreatedAt       pgtype.Timestamptz
+}
+
 type Provider struct {
 	ID               pgtype.UUID
 	Type             ProviderType
@@ -116,6 +336,36 @@ type Provider struct {
 	Location         string
 	LastUpdatedAt    pgtype.Timestamptz
 	CreatedAt        pgtype.Timestamptz
+}
+
+type Resource struct {
+	ID              pgtype.UUID
+	ProviderID      pgtype.UUID
+	Title           string
+	Description     pgtype.Text
+	Category        ResourceCategory
+	TotalCapacity   int32
+	CurrentCapacity int32
+	Unit            pgtype.Text
+	Status          VerificationStatus
+	Location        string
+	ContactPhone    pgtype.Text
+	Embedding       pgvector.Vector
+	LastUpdatedAt   pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+}
+
+type RoadHazard struct {
+	ID            pgtype.UUID
+	ReporterID    pgtype.UUID
+	ReporterName  pgtype.Text
+	ReporterPhone pgtype.Text
+	HazardType    string
+	Severity      string
+	Location      string
+	Description   pgtype.Text
+	IsVerified    bool
+	CreatedAt     pgtype.Timestamptz
 }
 
 type User struct {
