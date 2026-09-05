@@ -32,7 +32,7 @@ type SubmitAssistanceRequest struct {
 	Amount       int32    `json:"amount"` // Quantity needed
 	Description  string   `json:"description,omitempty"`
 	PhotoURL     string   `json:"photo_url,omitempty"`
-	Priority     string   `json:"priority,omitempty"` // LOW, MEDIUM, HIGH, CRITICAL
+	Priority     string   `json:"priority,omitempty"` // Deprecated: priority is calculated server-side.
 	Location     string   `json:"location,omitempty"`
 	Latitude     *float64 `json:"latitude,omitempty"`
 	Longitude    *float64 `json:"longitude,omitempty"`
@@ -109,6 +109,88 @@ func generateTrackingCode() string {
 	return fmt.Sprintf("REQ-%s", strings.ToUpper(hex.EncodeToString(b)))
 }
 
+func containsAny(value string, terms ...string) bool {
+	for _, term := range terms {
+		if strings.Contains(value, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func calculateAssistancePriority(category, thingsNeeded, description string, hazardNearby bool) database.RequestPriority {
+	text := strings.ToLower(strings.Join([]string{category, thingsNeeded, description}, " "))
+	categoryName := strings.ToUpper(strings.TrimSpace(category))
+
+	baseScore := 30
+	medical := categoryName == "MEDICINE" || containsAny(text, "medical", "medicine", "rescue", "ambulance", "oxygen", "blood", "insulin", "life-threatening")
+	food := categoryName == "FOOD" || containsAny(text, "food", "blanket", "blankets")
+	shelter := categoryName == "SHELTER" || containsAny(text, "shelter", "tent", "housing")
+	water := categoryName == "WATER" || containsAny(text, "water", "drinking")
+	lowUrgency := categoryName == "EQUIPMENT" || categoryName == "VOLUNTEER" || containsAny(text, "cleanup", "clean-up", "volunteer")
+
+	switch {
+	case medical:
+		baseScore = 90
+	case water || shelter:
+		baseScore = 70
+	case food:
+		baseScore = 45
+	case lowUrgency:
+		baseScore = 20
+	}
+
+	vulnerable := containsAny(text,
+		"infant", "baby", "newborn", "pregnant", "pregnancy", "elderly", "senior",
+		"disabil", "wheelchair", "blind", "bedridden",
+	)
+	if vulnerable {
+		if food {
+			return database.RequestPriorityCRITICAL
+		}
+		baseScore += 30
+	}
+	if hazardNearby {
+		baseScore += 35
+	}
+
+	switch {
+	case baseScore >= 90:
+		return database.RequestPriorityCRITICAL
+	case baseScore >= 65:
+		return database.RequestPriorityHIGH
+	case baseScore >= 35:
+		return database.RequestPriorityMEDIUM
+	default:
+		return database.RequestPriorityLOW
+	}
+}
+
+func (h *APIHandler) hasNearbyActiveHazard(ctx context.Context, location string) bool {
+	if location == "" {
+		return false
+	}
+
+	var nearby bool
+	err := h.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM road_hazards
+			WHERE created_at >= NOW() - INTERVAL '30 days'
+			  AND ST_DWithin(location::geography, ST_GeomFromText($1, 4326)::geography, 500)
+			  AND (
+				is_verified
+				OR UPPER(severity) IN ('HIGH', 'CRITICAL')
+				OR LOWER(hazard_type) ~ '(flood|collapse|fire|landslide)'
+			  )
+		)`, location).Scan(&nearby)
+	if err != nil {
+		log.Printf("[Priority] Nearby hazard lookup skipped: %v", err)
+		return false
+	}
+	return nearby
+}
+
 func (h *APIHandler) SubmitAssistanceRequest(w http.ResponseWriter, r *http.Request) {
 	var req SubmitAssistanceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -163,19 +245,6 @@ func (h *APIHandler) SubmitAssistanceRequest(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// Resolve Priority
-	priority := database.RequestPriorityMEDIUM
-	switch strings.ToUpper(strings.TrimSpace(req.Priority)) {
-	case "LOW":
-		priority = database.RequestPriorityLOW
-	case "MEDIUM":
-		priority = database.RequestPriorityMEDIUM
-	case "HIGH":
-		priority = database.RequestPriorityHIGH
-	case "CRITICAL":
-		priority = database.RequestPriorityCRITICAL
-	}
-
 	// Resolve Location
 	location := strings.TrimSpace(req.Location)
 	if location == "" && req.Latitude != nil && req.Longitude != nil {
@@ -185,6 +254,12 @@ func (h *APIHandler) SubmitAssistanceRequest(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "location or latitude/longitude is required")
 		return
 	}
+
+	// Priority is calculated from the request content and nearby active hazards.
+	priority := calculateAssistancePriority(
+		string(category), req.ThingsNeeded, req.Description,
+		h.hasNearbyActiveHazard(r.Context(), location),
+	)
 
 	// Resolve Requester ID from JWT claims if logged in
 	var requesterID pgtype.UUID

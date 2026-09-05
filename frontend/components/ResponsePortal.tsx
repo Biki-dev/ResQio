@@ -28,7 +28,6 @@ const initialNeed = {
   things_needed: "",
   amount: "1",
   description: "",
-  priority: "MEDIUM",
 };
 
 function requestDeviceLocation() {
@@ -249,7 +248,7 @@ export default function ResponsePortal() {
               <label className="flex flex-col gap-1.5"><span className="text-sm font-medium text-ink">Quantity</span><input required min="1" type="number" value={need.amount} onChange={(e) => setNeed({ ...need, amount: e.target.value })} className="border border-ink-border/30 bg-paper px-3 py-2 text-sm" /></label>
             </div>
             <label className="mt-4 flex flex-col gap-1.5"><span className="text-sm font-medium text-ink">Details</span><textarea rows={3} value={need.description} onChange={(e) => setNeed({ ...need, description: e.target.value })} className="border border-ink-border/30 bg-paper px-3 py-2 text-sm" /></label>
-            <div className="mt-4 flex flex-wrap items-end gap-4"><label className="flex flex-col gap-1.5"><span className="text-sm font-medium text-ink">Priority</span><select value={need.priority} onChange={(e) => setNeed({ ...need, priority: e.target.value })} className="border border-ink-border/30 bg-paper px-3 py-2 text-sm"><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select></label><button disabled={submitting} className="bg-verified px-5 py-3 text-sm font-semibold text-paper disabled:opacity-50">{submitting ? "Sending..." : "Request help nearby"}</button></div>
+            <div className="mt-4 flex flex-wrap items-end gap-4"><p className="max-w-md text-xs text-slate">Priority is calculated automatically from what is needed, vulnerability details, and nearby hazard reports.</p><button disabled={submitting} className="bg-verified px-5 py-3 text-sm font-semibold text-paper disabled:opacity-50">{submitting ? "Sending..." : "Request help nearby"}</button></div>
           </form>
         </div>
 

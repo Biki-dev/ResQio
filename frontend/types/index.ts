@@ -149,7 +149,6 @@ export interface SubmitAssistanceRequest {
   amount: number;
   description?: string;
   photo_url?: string;
-  priority?: RequestPriority | string;
   location?: string;
   latitude?: number;
   longitude?: number;
