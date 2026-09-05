@@ -350,6 +350,7 @@ type Resource struct {
 	Status          VerificationStatus
 	Location        string
 	ContactPhone    pgtype.Text
+	ImageUrl        pgtype.Text
 	Embedding       pgvector.Vector
 	LastUpdatedAt   pgtype.Timestamptz
 	CreatedAt       pgtype.Timestamptz

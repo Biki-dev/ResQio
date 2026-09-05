@@ -212,6 +212,7 @@ export interface ResourceRequest {
   latitude?: number;
   longitude?: number;
   contact_phone?: string;
+  image_url?: string;
 }
 
 export interface ResourceResponse extends ResourceRequest {
@@ -223,6 +224,7 @@ export interface ResourceResponse extends ResourceRequest {
   status: string;
   location: string;
   contact_phone: string;
+  image_url?: string;
   last_updated_at: string;
   created_at: string;
 }

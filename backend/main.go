@@ -96,6 +96,8 @@ func main() {
 	mux.Handle("POST /api/resources", authMw(providerGuard(http.HandlerFunc(apiHandler.CreateResource))))
 	mux.HandleFunc("GET /api/resources", apiHandler.ListResources)
 	mux.HandleFunc("GET /api/resources/{id}", apiHandler.GetResourceByID)
+	mux.Handle("PUT /api/resources/{id}", authMw(providerGuard(http.HandlerFunc(apiHandler.UpdateResource))))
+	mux.Handle("DELETE /api/resources/{id}", authMw(providerGuard(http.HandlerFunc(apiHandler.DeleteResource))))
 
 	// System & Health
 	mux.HandleFunc("GET /healthz", apiHandler.Healthz)

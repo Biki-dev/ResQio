@@ -24,11 +24,12 @@ INSERT INTO resources (
     status,
     location,
     contact_phone,
+    image_url,
     embedding
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 )
-RETURNING id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, embedding, last_updated_at, created_at
+RETURNING id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, image_url, embedding, last_updated_at, created_at
 `
 
 type CreateResourceParams struct {
@@ -42,6 +43,7 @@ type CreateResourceParams struct {
 	Status          VerificationStatus
 	Location        string
 	ContactPhone    pgtype.Text
+	ImageUrl        pgtype.Text
 	Embedding       pgvector.Vector
 }
 
@@ -57,6 +59,7 @@ func (q *Queries) CreateResource(ctx context.Context, arg CreateResourceParams) 
 		arg.Status,
 		arg.Location,
 		arg.ContactPhone,
+		arg.ImageUrl,
 		arg.Embedding,
 	)
 	var i Resource
@@ -72,6 +75,7 @@ func (q *Queries) CreateResource(ctx context.Context, arg CreateResourceParams) 
 		&i.Status,
 		&i.Location,
 		&i.ContactPhone,
+		&i.ImageUrl,
 		&i.Embedding,
 		&i.LastUpdatedAt,
 		&i.CreatedAt,
@@ -79,8 +83,23 @@ func (q *Queries) CreateResource(ctx context.Context, arg CreateResourceParams) 
 	return i, err
 }
 
+const deleteResource = `-- name: DeleteResource :exec
+DELETE FROM resources
+WHERE id = $1 AND provider_id = $2
+`
+
+type DeleteResourceParams struct {
+	ID         pgtype.UUID
+	ProviderID pgtype.UUID
+}
+
+func (q *Queries) DeleteResource(ctx context.Context, arg DeleteResourceParams) error {
+	_, err := q.db.Exec(ctx, deleteResource, arg.ID, arg.ProviderID)
+	return err
+}
+
 const getResourceByID = `-- name: GetResourceByID :one
-SELECT id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, embedding, last_updated_at, created_at FROM resources
+SELECT id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, image_url, embedding, last_updated_at, created_at FROM resources
 WHERE id = $1 LIMIT 1
 `
 
@@ -99,6 +118,7 @@ func (q *Queries) GetResourceByID(ctx context.Context, id pgtype.UUID) (Resource
 		&i.Status,
 		&i.Location,
 		&i.ContactPhone,
+		&i.ImageUrl,
 		&i.Embedding,
 		&i.LastUpdatedAt,
 		&i.CreatedAt,
@@ -107,7 +127,7 @@ func (q *Queries) GetResourceByID(ctx context.Context, id pgtype.UUID) (Resource
 }
 
 const listResources = `-- name: ListResources :many
-SELECT id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, embedding, last_updated_at, created_at FROM resources
+SELECT id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, image_url, embedding, last_updated_at, created_at FROM resources
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2
 `
@@ -138,6 +158,7 @@ func (q *Queries) ListResources(ctx context.Context, arg ListResourcesParams) ([
 			&i.Status,
 			&i.Location,
 			&i.ContactPhone,
+			&i.ImageUrl,
 			&i.Embedding,
 			&i.LastUpdatedAt,
 			&i.CreatedAt,
@@ -153,7 +174,7 @@ func (q *Queries) ListResources(ctx context.Context, arg ListResourcesParams) ([
 }
 
 const listResourcesByCategory = `-- name: ListResourcesByCategory :many
-SELECT id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, embedding, last_updated_at, created_at FROM resources
+SELECT id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, image_url, embedding, last_updated_at, created_at FROM resources
 WHERE category = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -186,6 +207,7 @@ func (q *Queries) ListResourcesByCategory(ctx context.Context, arg ListResources
 			&i.Status,
 			&i.Location,
 			&i.ContactPhone,
+			&i.ImageUrl,
 			&i.Embedding,
 			&i.LastUpdatedAt,
 			&i.CreatedAt,
@@ -201,7 +223,7 @@ func (q *Queries) ListResourcesByCategory(ctx context.Context, arg ListResources
 }
 
 const listResourcesByProvider = `-- name: ListResourcesByProvider :many
-SELECT id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, embedding, last_updated_at, created_at FROM resources
+SELECT id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, image_url, embedding, last_updated_at, created_at FROM resources
 WHERE provider_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -234,6 +256,7 @@ func (q *Queries) ListResourcesByProvider(ctx context.Context, arg ListResources
 			&i.Status,
 			&i.Location,
 			&i.ContactPhone,
+			&i.ImageUrl,
 			&i.Embedding,
 			&i.LastUpdatedAt,
 			&i.CreatedAt,
@@ -248,11 +271,73 @@ func (q *Queries) ListResourcesByProvider(ctx context.Context, arg ListResources
 	return items, nil
 }
 
+const updateResource = `-- name: UpdateResource :one
+UPDATE resources
+SET title = $2,
+    description = $3,
+    category = $4,
+    total_capacity = $5,
+    current_capacity = $6,
+    unit = $7,
+    contact_phone = $8,
+    image_url = $9,
+    last_updated_at = NOW()
+WHERE id = $1 AND provider_id = $10
+RETURNING id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, image_url, embedding, last_updated_at, created_at
+`
+
+type UpdateResourceParams struct {
+	ID              pgtype.UUID
+	Title           string
+	Description     pgtype.Text
+	Category        ResourceCategory
+	TotalCapacity   int32
+	CurrentCapacity int32
+	Unit            pgtype.Text
+	ContactPhone    pgtype.Text
+	ImageUrl        pgtype.Text
+	ProviderID      pgtype.UUID
+}
+
+func (q *Queries) UpdateResource(ctx context.Context, arg UpdateResourceParams) (Resource, error) {
+	row := q.db.QueryRow(ctx, updateResource,
+		arg.ID,
+		arg.Title,
+		arg.Description,
+		arg.Category,
+		arg.TotalCapacity,
+		arg.CurrentCapacity,
+		arg.Unit,
+		arg.ContactPhone,
+		arg.ImageUrl,
+		arg.ProviderID,
+	)
+	var i Resource
+	err := row.Scan(
+		&i.ID,
+		&i.ProviderID,
+		&i.Title,
+		&i.Description,
+		&i.Category,
+		&i.TotalCapacity,
+		&i.CurrentCapacity,
+		&i.Unit,
+		&i.Status,
+		&i.Location,
+		&i.ContactPhone,
+		&i.ImageUrl,
+		&i.Embedding,
+		&i.LastUpdatedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const updateResourceCapacity = `-- name: UpdateResourceCapacity :one
 UPDATE resources
 SET current_capacity = $2, last_updated_at = NOW()
 WHERE id = $1
-RETURNING id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, embedding, last_updated_at, created_at
+RETURNING id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, image_url, embedding, last_updated_at, created_at
 `
 
 type UpdateResourceCapacityParams struct {
@@ -275,6 +360,7 @@ func (q *Queries) UpdateResourceCapacity(ctx context.Context, arg UpdateResource
 		&i.Status,
 		&i.Location,
 		&i.ContactPhone,
+		&i.ImageUrl,
 		&i.Embedding,
 		&i.LastUpdatedAt,
 		&i.CreatedAt,
@@ -286,7 +372,7 @@ const updateResourceStatus = `-- name: UpdateResourceStatus :one
 UPDATE resources
 SET status = $2, last_updated_at = NOW()
 WHERE id = $1
-RETURNING id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, embedding, last_updated_at, created_at
+RETURNING id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, location, contact_phone, image_url, embedding, last_updated_at, created_at
 `
 
 type UpdateResourceStatusParams struct {
@@ -309,6 +395,7 @@ func (q *Queries) UpdateResourceStatus(ctx context.Context, arg UpdateResourceSt
 		&i.Status,
 		&i.Location,
 		&i.ContactPhone,
+		&i.ImageUrl,
 		&i.Embedding,
 		&i.LastUpdatedAt,
 		&i.CreatedAt,

@@ -53,14 +53,21 @@ export default function ProviderRegistrationPage() {
       <>
         <PageHeader breadcrumb={["Register", "Provider"]} />
         <main className="flex min-h-[60vh] items-center justify-center bg-paper px-6">
-          <div className="max-w-sm text-center">
+          <div className="max-w-md text-center">
             <h1 className="font-display text-2xl text-ink">
-              Registration received
+              Provider Account Created
             </h1>
             <p className="mt-3 text-sm text-slate">
-              Your provider account is pending verification. We&apos;ll confirm
-              your government ID before your listings go live.
+              You are signed in as a provider. You can now access your provider dashboard and list emergency products in inventory.
             </p>
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <a
+                href="/provider"
+                className="rounded bg-signal px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-signal-dark"
+              >
+                Go to Provider Dashboard & Inventory
+              </a>
+            </div>
           </div>
         </main>
       </>

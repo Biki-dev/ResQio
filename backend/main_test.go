@@ -78,6 +78,8 @@ func setupTestServer(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	mux.Handle("POST /api/resources", authMw(providerGuard(http.HandlerFunc(apiHandler.CreateResource))))
 	mux.HandleFunc("GET /api/resources", apiHandler.ListResources)
 	mux.HandleFunc("GET /api/resources/{id}", apiHandler.GetResourceByID)
+	mux.Handle("PUT /api/resources/{id}", authMw(providerGuard(http.HandlerFunc(apiHandler.UpdateResource))))
+	mux.Handle("DELETE /api/resources/{id}", authMw(providerGuard(http.HandlerFunc(apiHandler.DeleteResource))))
 
 	// System & Health
 	mux.HandleFunc("GET /healthz", apiHandler.Healthz)
@@ -701,6 +703,45 @@ func TestMutualAidAndResources(t *testing.T) {
 
 	if viewResRec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK on get resource by ID, got: %d", viewResRec.Code)
+	}
+
+	// 7. Update Resource Listing
+	updatePayload := handlers.UpdateResourceRequest{
+		Title:         "Drinking Water Supplies - Updated",
+		TotalCapacity: 12000,
+		ImageUrl:      "/uploads/updated-water.jpg",
+	}
+	updBody, _ := json.Marshal(updatePayload)
+	updReq := httptest.NewRequest("PUT", "/api/resources/"+resCreated.ID, bytes.NewReader(updBody))
+	updReq.Header.Set("Content-Type", "application/json")
+	updReq.Header.Set("Authorization", "Bearer "+provToken)
+	updRec := httptest.NewRecorder()
+	handler.ServeHTTP(updRec, updReq)
+
+	if updRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on resource update, got: %d (%s)", updRec.Code, updRec.Body.String())
+	}
+
+	var resUpdated handlers.ResourceResponse
+	_ = json.NewDecoder(updRec.Body).Decode(&resUpdated)
+	if resUpdated.Title != "Drinking Water Supplies - Updated" {
+		t.Errorf("expected updated title, got: %s", resUpdated.Title)
+	}
+	if resUpdated.TotalCapacity != 12000 {
+		t.Errorf("expected capacity 12000, got: %d", resUpdated.TotalCapacity)
+	}
+	if resUpdated.ImageUrl != "/uploads/updated-water.jpg" {
+		t.Errorf("expected image url '/uploads/updated-water.jpg', got: %s", resUpdated.ImageUrl)
+	}
+
+	// 8. Delete Resource
+	delReq := httptest.NewRequest("DELETE", "/api/resources/"+resCreated.ID, nil)
+	delReq.Header.Set("Authorization", "Bearer "+provToken)
+	delRec := httptest.NewRecorder()
+	handler.ServeHTTP(delRec, delReq)
+
+	if delRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on resource delete, got: %d (%s)", delRec.Code, delRec.Body.String())
 	}
 }
 

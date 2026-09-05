@@ -31,6 +31,9 @@ export default function LoginPage() {
     }
 
     setStatus("done");
+    if (accountType === "provider") {
+      window.location.href = "/provider";
+    }
   }
 
   return (
@@ -47,15 +50,26 @@ export default function LoginPage() {
             <p className="font-semibold text-verified">Sign-in successful.</p>
             <p className="mt-1 text-slate">You are now authenticated on ResQio.</p>
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <a
-                href="/#response-portal"
-                className="rounded bg-signal px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-signal-dark"
-              >
-                Go to Live Response Desk
-              </a>
-              <a href="/admin" className="rounded border border-ink-border px-4 py-2 text-sm font-medium text-ink hover:bg-paper-dim">
-                View Account Profile
-              </a>
+              {accountType === "provider" ? (
+                <a
+                  href="/provider"
+                  className="rounded bg-signal px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-signal-dark"
+                >
+                  Go to Provider Dashboard & Inventory
+                </a>
+              ) : (
+                <>
+                  <a
+                    href="/#response-portal"
+                    className="rounded bg-signal px-4 py-2 text-sm font-semibold text-ink transition-colors hover:bg-signal-dark"
+                  >
+                    Go to Live Response Desk
+                  </a>
+                  <a href="/admin" className="rounded border border-ink-border px-4 py-2 text-sm font-medium text-ink hover:bg-paper-dim">
+                    View Account Profile
+                  </a>
+                </>
+              )}
             </div>
           </div>
         ) : (

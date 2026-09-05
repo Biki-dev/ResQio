@@ -112,6 +112,11 @@ export default function Navbar({ onGetStartedClick }: NavbarProps) {
             <a href="/#response-portal" className="px-4 py-3 hover:bg-ink-light">
               Response Desk
             </a>
+            {session?.accountType === "provider" && (
+              <a href="/provider" className="px-4 py-3 font-semibold text-signal hover:bg-ink-light">
+                Provider Inventory
+              </a>
+            )}
             <a href="/admin" className="px-4 py-3 hover:bg-ink-light">
               Admin
             </a>

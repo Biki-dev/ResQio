@@ -325,9 +325,64 @@ export function getResources(limit = 20, offset = 0, category?: string) {
   return request<ResourceResponse[]>(`/resources?limit=${limit}&offset=${offset}${categoryParam}`);
 }
 
+export function getProviderResources(providerId: string, limit = 50, offset = 0) {
+  return request<ResourceResponse[]>(
+    `/resources?provider_id=${encodeURIComponent(providerId)}&limit=${limit}&offset=${offset}`
+  );
+}
+
 export function publishResource(payload: ResourceRequest) {
   return request<ResourceResponse, ResourceRequest>("/resources", {
     method: "POST",
     body: payload,
   });
 }
+
+export function createResource(payload: ResourceRequest) {
+  return publishResource(payload);
+}
+
+export function updateResource(id: string, payload: Partial<ResourceRequest>) {
+  return request<ResourceResponse, Partial<ResourceRequest>>(`/resources/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: payload,
+  });
+}
+
+export function deleteResource(id: string) {
+  return request<{ message: string }>(`/resources/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function uploadPhotoWithMulter(file: File): Promise<ApiResult<{ url: string }>> {
+  try {
+    const formData = new FormData();
+    formData.append("photo", file);
+
+    const res = await fetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      return {
+        success: false,
+        error: json?.error ?? `Upload failed with status ${res.status}`,
+      };
+    }
+
+    return {
+      success: true,
+      data: { url: json.url },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "File upload failed",
+    };
+  }
+}
+
