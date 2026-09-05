@@ -10,6 +10,7 @@ import type {
   MutualAidItemRequest,
   MutualAidItemResponse,
   Provider,
+  ProviderAssistanceRequest,
   RegisterProviderRequest,
   RegisterUserRequest,
   ResourceRequest,
@@ -391,6 +392,10 @@ export async function uploadPhotoWithMulter(file: File): Promise<ApiResult<{ url
 
 export function getActiveProviderPing() {
   return request<{ ping: ActivePing | null }>("/provider/pings/active");
+}
+
+export function getProviderAssistanceRequests(limit = 100) {
+  return request<ProviderAssistanceRequest[]>(`/provider/requests?limit=${limit}`);
 }
 
 export function acceptDispatchPing(pingId: string) {

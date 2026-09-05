@@ -24,19 +24,19 @@ import (
 )
 
 type SubmitAssistanceRequest struct {
-	Name           string   `json:"name"`
-	Identity       string   `json:"identity,omitempty"`
-	PhoneNumber    string   `json:"phone_number"`
-	ThingsNeeded   string   `json:"things_needed"` // Maps to ResourceCategory or description
-	Category       string   `json:"category,omitempty"`
-	Amount         int32    `json:"amount"` // Quantity needed
-	Description    string   `json:"description,omitempty"`
-	PhotoURL       string   `json:"photo_url,omitempty"`
-	Priority       string   `json:"priority,omitempty"` // LOW, MEDIUM, HIGH, CRITICAL
-	Location       string   `json:"location,omitempty"`
-	Latitude       *float64 `json:"latitude,omitempty"`
-	Longitude      *float64 `json:"longitude,omitempty"`
-	AddressText    string   `json:"address_text,omitempty"`
+	Name         string   `json:"name"`
+	Identity     string   `json:"identity,omitempty"`
+	PhoneNumber  string   `json:"phone_number"`
+	ThingsNeeded string   `json:"things_needed"` // Maps to ResourceCategory or description
+	Category     string   `json:"category,omitempty"`
+	Amount       int32    `json:"amount"` // Quantity needed
+	Description  string   `json:"description,omitempty"`
+	PhotoURL     string   `json:"photo_url,omitempty"`
+	Priority     string   `json:"priority,omitempty"` // LOW, MEDIUM, HIGH, CRITICAL
+	Location     string   `json:"location,omitempty"`
+	Latitude     *float64 `json:"latitude,omitempty"`
+	Longitude    *float64 `json:"longitude,omitempty"`
+	AddressText  string   `json:"address_text,omitempty"`
 }
 
 type AssistanceRequestResponse struct {
@@ -60,6 +60,47 @@ type AssistanceRequestResponse struct {
 	ContactPhone          string    `json:"contact_phone"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
+}
+
+type ProviderAssistanceRequestResponse struct {
+	AssistanceRequestResponse
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+}
+
+func assistanceRequestResponse(req database.AssistanceRequest) AssistanceRequestResponse {
+	var requesterID, coordinatorID, providerID *string
+	if req.RequesterID.Valid {
+		value := uuid.UUID(req.RequesterID.Bytes).String()
+		requesterID = &value
+	}
+	if req.AssignedCoordinatorID.Valid {
+		value := uuid.UUID(req.AssignedCoordinatorID.Bytes).String()
+		coordinatorID = &value
+	}
+	if req.MatchedProviderID.Valid {
+		value := uuid.UUID(req.MatchedProviderID.Bytes).String()
+		providerID = &value
+	}
+	return AssistanceRequestResponse{
+		ID:                    uuid.UUID(req.ID.Bytes).String(),
+		RequesterID:           requesterID,
+		TrackingCode:          req.TrackingCode,
+		Category:              string(req.Category),
+		QuantityNeeded:        req.QuantityNeeded,
+		Description:           pgTextToString(req.Description),
+		Priority:              string(req.Priority),
+		Status:                string(req.Status),
+		DispatchStatus:        string(req.DispatchStatus),
+		MatchedProviderID:     providerID,
+		AssignedCoordinatorID: coordinatorID,
+		Location:              req.Location,
+		AddressText:           pgTextToString(req.AddressText),
+		RequesterName:         req.RequesterNameEncrypted,
+		ContactPhone:          req.ContactPhoneEncrypted,
+		CreatedAt:             req.CreatedAt.Time,
+		UpdatedAt:             req.UpdatedAt.Time,
+	}
 }
 
 func generateTrackingCode() string {
@@ -310,6 +351,66 @@ func (h *APIHandler) ListAssistanceRequests(w http.ResponseWriter, r *http.Reque
 	}
 
 	respondWithJSON(w, http.StatusOK, res)
+}
+
+func (h *APIHandler) ListProviderAssistanceRequests(w http.ResponseWriter, r *http.Request) {
+	if _, ok := middleware.GetClaims(r.Context()); !ok {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	limit := 100
+	if value := r.URL.Query().Get("limit"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 && parsed <= 200 {
+			limit = parsed
+		}
+	}
+
+	rows, err := h.pool.Query(r.Context(), `
+		SELECT id, requester_id, tracking_code, category, quantity_needed, description,
+		       priority, status, dispatch_status, matched_provider_id,
+		       assigned_coordinator_id, location, address_text,
+		       requester_name_encrypted, contact_phone_encrypted, created_at, updated_at,
+		       ST_Y(location::geometry), ST_X(location::geometry)
+		FROM assistance_requests
+		ORDER BY CASE priority
+		           WHEN 'CRITICAL' THEN 0
+		           WHEN 'HIGH' THEN 1
+		           WHEN 'MEDIUM' THEN 2
+		           ELSE 3
+		         END, created_at DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve provider requests")
+		return
+	}
+	defer rows.Close()
+
+	requests := make([]ProviderAssistanceRequestResponse, 0)
+	for rows.Next() {
+		var req database.AssistanceRequest
+		var latitude, longitude float64
+		if err := rows.Scan(
+			&req.ID, &req.RequesterID, &req.TrackingCode, &req.Category, &req.QuantityNeeded,
+			&req.Description, &req.Priority, &req.Status, &req.DispatchStatus,
+			&req.MatchedProviderID, &req.AssignedCoordinatorID, &req.Location,
+			&req.AddressText, &req.RequesterNameEncrypted, &req.ContactPhoneEncrypted,
+			&req.CreatedAt, &req.UpdatedAt, &latitude, &longitude,
+		); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to read provider requests")
+			return
+		}
+		requests = append(requests, ProviderAssistanceRequestResponse{
+			AssistanceRequestResponse: assistanceRequestResponse(req),
+			Latitude:                  latitude,
+			Longitude:                 longitude,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to read provider requests")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, requests)
 }
 
 func (h *APIHandler) GetAssistanceRequestByID(w http.ResponseWriter, r *http.Request) {

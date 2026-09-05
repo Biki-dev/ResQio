@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent, type ChangeEvent } from "react";
+import dynamic from "next/dynamic";
 import PageHeader from "@/components/PageHeader";
 import {
   acceptDispatchPing,
@@ -9,6 +10,7 @@ import {
   deleteResource,
   getActiveProviderPing,
   getProviderMe,
+  getProviderAssistanceRequests,
   getProviderResources,
   getSession,
   rejectDispatchPing,
@@ -16,7 +18,7 @@ import {
   updateResource,
   uploadPhotoWithMulter,
 } from "@/lib/api";
-import type { ActivePing, MatchResponse, Provider, ResourceResponse } from "@/types";
+import type { ActivePing, MatchResponse, Provider, ProviderAssistanceRequest, ResourceResponse } from "@/types";
 import {
   AlertTriangle,
   Bell,
@@ -38,6 +40,11 @@ import {
   Upload,
   X,
 } from "lucide-react";
+
+const ProviderRequestMap = dynamic(() => import("@/components/ProviderRequestMap"), {
+  ssr: false,
+  loading: () => <div className="h-[420px] animate-pulse bg-paper-dim" />,
+});
 
 const CATEGORIES = [
   "FOOD",
@@ -73,6 +80,7 @@ export default function ProviderPage() {
   const [session, setSession] = useState<SessionData | null>(null);
   const [provider, setProvider] = useState<Provider | null>(null);
   const [items, setItems] = useState<ResourceResponse[]>([]);
+  const [requests, setRequests] = useState<ProviderAssistanceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -124,6 +132,23 @@ export default function ProviderPage() {
 
     void checkPing();
     const interval = setInterval(checkPing, 4000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [session]);
+
+  useEffect(() => {
+    if (!session || session.accountType !== "provider") return;
+    let mounted = true;
+
+    async function refreshRequests() {
+      const result = await getProviderAssistanceRequests();
+      if (mounted && result.success) setRequests(result.data);
+    }
+
+    void refreshRequests();
+    const interval = setInterval(refreshRequests, 10000);
     return () => {
       mounted = false;
       clearInterval(interval);
@@ -590,6 +615,62 @@ export default function ProviderPage() {
             </button>
           </div>
         )}
+
+        <section className="mt-10" aria-labelledby="request-inbox-title">
+          <div className="flex flex-col gap-3 border-b border-ink-border/30 pb-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Bell className="h-5 w-5 text-signal-dark" />
+                <h2 id="request-inbox-title" className="font-display text-xl font-bold text-ink">
+                  Community Assistance Requests ({requests.length})
+                </h2>
+              </div>
+              <p className="mt-1 text-xs text-slate">
+                Review incoming needs by urgency and location while dispatch pings continue in real time.
+              </p>
+            </div>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate">Auto-refreshes every 10 seconds</span>
+          </div>
+
+          <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+            <div className="flex max-h-[520px] flex-col gap-3 overflow-y-auto pr-1">
+              {requests.length === 0 ? (
+                <div className="rounded border border-dashed border-ink-border/40 bg-paper p-8 text-center text-sm text-slate">
+                  No assistance requests have arrived yet.
+                </div>
+              ) : (
+                requests.map((request) => (
+                  <article key={request.id} className="rounded border border-ink-border/30 bg-paper p-4 shadow-sm transition hover:border-signal-dark/50">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-ink">{request.tracking_code}</span>
+                          <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${request.priority === "CRITICAL" ? "bg-red-100 text-red-700" : request.priority === "HIGH" ? "bg-amber-100 text-amber-700" : "bg-paper-dim text-slate"}`}>
+                            {request.priority}
+                          </span>
+                        </div>
+                        <h3 className="mt-2 font-display text-lg font-bold text-ink">
+                          {request.quantity_needed} x {request.category}
+                        </h3>
+                      </div>
+                      <span className="rounded border border-ink-border/30 px-2 py-1 text-[10px] font-semibold uppercase text-slate">
+                        {request.dispatch_status || request.status}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm text-ink">{request.description || "No additional details provided."}</p>
+                    <div className="mt-3 grid gap-1 text-xs text-slate sm:grid-cols-2">
+                      <span><strong className="text-ink">Requester:</strong> {request.requester_name}</span>
+                      <span><strong className="text-ink">Contact:</strong> {request.contact_phone}</span>
+                      <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{request.address_text || "Location pinned on map"}</span>
+                      <span><strong className="text-ink">Received:</strong> {new Date(request.created_at).toLocaleString()}</span>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+            <ProviderRequestMap requests={requests} />
+          </div>
+        </section>
 
         {/* Main Grid: Form on Left/Top, Inventory on Right/Bottom */}
         <div className="mt-10 grid gap-10 lg:grid-cols-12">

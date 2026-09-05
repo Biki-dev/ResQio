@@ -106,6 +106,7 @@ func main() {
 	mux.Handle("DELETE /api/resources/{id}", authMw(providerGuard(http.HandlerFunc(apiHandler.DeleteResource))))
 
 	// Provider Dispatch Pings (Real-Time Emergency Matching & Cascades)
+	mux.Handle("GET /api/provider/requests", authMw(providerGuard(http.HandlerFunc(apiHandler.ListProviderAssistanceRequests))))
 	mux.Handle("GET /api/provider/pings/active", authMw(providerGuard(http.HandlerFunc(apiHandler.GetActiveProviderPing))))
 	mux.Handle("POST /api/provider/pings/{id}/accept", authMw(providerGuard(http.HandlerFunc(apiHandler.AcceptPing))))
 	mux.Handle("POST /api/provider/pings/{id}/reject", authMw(providerGuard(http.HandlerFunc(apiHandler.RejectPing))))

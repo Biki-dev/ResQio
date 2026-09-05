@@ -179,6 +179,11 @@ export interface AssistanceRequestResponse {
   updated_at: string;
 }
 
+export interface ProviderAssistanceRequest extends AssistanceRequestResponse {
+  latitude: number;
+  longitude: number;
+}
+
 export interface ActivePing {
   ping_id: string;
   request_id: string;
