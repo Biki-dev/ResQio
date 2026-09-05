@@ -59,6 +59,7 @@ func main() {
 	optAuthMw := middleware.OptionalAuthMiddleware(cfg.JWTSecret)
 	userGuard := middleware.RequireAccountType(auth.AccountTypeUser)
 	providerGuard := middleware.RequireAccountType(auth.AccountTypeProvider)
+	victimGuard := middleware.RequireUserRole(string(database.UserRoleVICTIM))
 
 	// User Routes
 	mux.HandleFunc("POST /api/auth/users/register", apiHandler.RegisterUser)
@@ -81,7 +82,7 @@ func main() {
 	mux.HandleFunc("GET /api/hazards/{id}", apiHandler.GetRoadHazardByID)
 
 	// Assistance Requests (Wireframe: Right Form & Previous Calls Feed & Tracking)
-	mux.Handle("POST /api/requests", optAuthMw(http.HandlerFunc(apiHandler.SubmitAssistanceRequest)))
+	mux.Handle("POST /api/requests", authMw(victimGuard(http.HandlerFunc(apiHandler.SubmitAssistanceRequest))))
 	mux.HandleFunc("GET /api/requests", apiHandler.ListAssistanceRequests)
 	mux.HandleFunc("GET /api/requests/{id}", apiHandler.GetAssistanceRequestByID)
 	mux.HandleFunc("GET /api/requests/track/{code}", apiHandler.TrackAssistanceRequest)

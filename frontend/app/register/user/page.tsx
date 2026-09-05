@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { FormField } from "@/components/ui/FormField";
+import { FormField, FormSelect } from "@/components/ui/FormField";
 import PageHeader from "@/components/PageHeader";
 import { registerUser } from "@/lib/api";
 import type { RegisterUserRequest } from "@/types";
@@ -10,6 +10,7 @@ const INITIAL_STATE: RegisterUserRequest = {
   full_name: "",
   phone: "",
   password: "",
+  role: "VICTIM",
 };
 
 export default function UserRegistrationPage() {
@@ -44,14 +45,28 @@ export default function UserRegistrationPage() {
   if (status === "done") {
     return (
       <>
-        <PageHeader breadcrumb={["Register", "Public user"]} />
+        <PageHeader breadcrumb={["Register", "User"]} />
         <main className="flex min-h-[60vh] items-center justify-center bg-paper px-6">
-          <div className="max-w-sm text-center">
-            <h1 className="font-display text-2xl text-ink">You&apos;re in</h1>
+          <div className="max-w-md text-center">
+            <h1 className="font-display text-2xl text-ink">You&apos;re registered!</h1>
             <p className="mt-3 text-sm text-slate">
-              Your account is ready. You can now search for verified
-              resources near you.
+              Your account has been created with role{" "}
+              <strong className="text-ink">{form.role || "VICTIM"}</strong>. You can now submit emergency assistance requests and coordinate aid.
             </p>
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <a
+                href="/#response-portal"
+                className="w-full sm:w-auto rounded bg-signal px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-signal-dark"
+              >
+                Go to Live Response Desk
+              </a>
+              <a
+                href="/admin"
+                className="w-full sm:w-auto rounded border border-ink-border px-5 py-2.5 text-sm font-medium text-ink hover:bg-paper-dim"
+              >
+                View Account
+              </a>
+            </div>
           </div>
         </main>
       </>
@@ -85,6 +100,27 @@ export default function UserRegistrationPage() {
           maxLength={20}
           value={form.phone}
           onChange={(e) => update("phone", e.target.value)}
+        />
+
+        <FormSelect
+          label="User Role / Registration Purpose"
+          name="role"
+          value={form.role || "VICTIM"}
+          onChange={(e) => update("role", e.target.value)}
+          options={[
+            {
+              value: "VICTIM",
+              label: "Disaster Victim (Required for Emergency Assistance Requests)",
+            },
+            {
+              value: "PUBLIC",
+              label: "General Public / Citizen",
+            },
+            {
+              value: "VOLUNTEER",
+              label: "Volunteer / Relief Worker",
+            },
+          ]}
         />
 
         <FormField

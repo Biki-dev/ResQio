@@ -7,6 +7,8 @@ import {
   getMutualAidItems,
   getResources,
   getRoadHazards,
+  getSession,
+  type SessionData,
   submitAssistanceRequest,
   submitRoadHazard,
   trackAssistanceRequest,
@@ -49,6 +51,7 @@ function formatDate(value: string) {
 }
 
 export default function ResponsePortal() {
+  const [session, setSession] = useState<SessionData | null>(null);
   const [issues, setIssues] = useState<RoadHazardResponse[]>([]);
   const [requests, setRequests] = useState<AssistanceRequestResponse[]>([]);
   const [aidItems, setAidItems] = useState<MutualAidItemResponse[]>([]);
@@ -78,6 +81,18 @@ export default function ResponsePortal() {
 
   useEffect(() => {
     void refreshFeeds();
+    const currentSession = getSession();
+    setSession(currentSession);
+    if (currentSession) {
+      if (currentSession.fullName) {
+        setNeed((prev) => ({ ...prev, name: prev.name || currentSession.fullName || "" }));
+        setIssue((prev) => ({ ...prev, name: prev.name || currentSession.fullName || "" }));
+      }
+      if (currentSession.phone) {
+        setNeed((prev) => ({ ...prev, phone_number: prev.phone_number || currentSession.phone || "" }));
+        setIssue((prev) => ({ ...prev, phone_number: prev.phone_number || currentSession.phone || "" }));
+      }
+    }
   }, []);
 
   async function handleIssueSubmit(event: FormEvent<HTMLFormElement>) {
@@ -93,7 +108,11 @@ export default function ResponsePortal() {
         ...location,
       });
       if (!result.success) throw new Error(result.error);
-      setIssue(initialIssue);
+      setIssue((prev) => ({
+        ...initialIssue,
+        name: session?.fullName || "",
+        phone_number: session?.phone || "",
+      }));
       setMessage("Issue submitted. Thank you for helping responders verify the situation.");
       await refreshFeeds();
     } catch (error) {
@@ -105,8 +124,19 @@ export default function ResponsePortal() {
 
   async function handleNeedSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSubmitting(true);
     setMessage("");
+
+    if (!session) {
+      setMessage("Authentication required: You must be signed in with a VICTIM account to submit an emergency assistance request. Please sign in or register.");
+      return;
+    }
+
+    if (session.role?.toUpperCase() !== "VICTIM") {
+      setMessage(`Access restricted: Your current account role is '${session.role || session.accountType}'. Only users registered with the 'VICTIM' role can submit assistance calls.`);
+      return;
+    }
+
+    setSubmitting(true);
     try {
       const location = await requestDeviceLocation();
       const result = await submitAssistanceRequest({
@@ -115,8 +145,12 @@ export default function ResponsePortal() {
         ...location,
       });
       if (!result.success) throw new Error(result.error);
-      setNeed(initialNeed);
-      setMessage(`Request registered. Tracking code: ${result.data.tracking_code}`);
+      setNeed({
+        ...initialNeed,
+        name: session?.fullName || "",
+        phone_number: session?.phone || "",
+      });
+      setMessage(`Assistance request registered successfully! Tracking code: ${result.data.tracking_code}`);
       await refreshFeeds();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to register the request.");
@@ -156,7 +190,47 @@ export default function ResponsePortal() {
           </form>
 
           <form onSubmit={handleNeedSubmit} className="border border-ink-border/25 bg-paper p-6">
-            <h3 className="font-display text-2xl text-ink">Ask for assistance</h3>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="font-display text-2xl text-ink">Ask for assistance</h3>
+                <p className="mt-1 text-xs text-slate">
+                  Emergency aid desk. Restricted to verified <strong className="text-ink">VICTIM</strong> accounts.
+                </p>
+              </div>
+            </div>
+
+            {!session ? (
+              <div className="mt-3 rounded border border-signal/60 bg-signal/15 p-3 text-xs text-ink">
+                <div className="font-semibold text-ink">Sign-in Required</div>
+                <p className="mt-0.5 text-slate">
+                  You must be signed in with a VICTIM account to request immediate assistance.
+                </p>
+                <div className="mt-2.5 flex items-center gap-2">
+                  <a href="/login" className="rounded bg-signal px-3 py-1 font-semibold text-ink hover:bg-signal-dark">
+                    Sign in
+                  </a>
+                  <a href="/register/user" className="rounded border border-ink/30 px-3 py-1 font-medium text-ink hover:bg-paper-dim">
+                    Register as Victim
+                  </a>
+                </div>
+              </div>
+            ) : session.role?.toUpperCase() === "VICTIM" ? (
+              <div className="mt-3 flex items-center gap-2 rounded border border-verified/40 bg-verified/10 px-3 py-2 text-xs text-ink">
+                <span className="font-semibold text-verified">✓ Verified Victim Account:</span>
+                <span>{session.fullName || session.phone}</span>
+              </div>
+            ) : (
+              <div className="mt-3 rounded border border-alert/40 bg-alert/10 p-3 text-xs text-alert">
+                <div className="font-semibold">Role Restriction</div>
+                <p className="mt-0.5">
+                  Signed in as <strong>{session.role || session.accountType}</strong>. Emergency assistance requests require an account with the <strong>VICTIM</strong> role.
+                </p>
+                <a href="/register/user" className="mt-1.5 inline-block font-semibold underline">
+                  Register as Victim
+                </a>
+              </div>
+            )}
+
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-1.5"><span className="text-sm font-medium text-ink">Your name</span><input required value={need.name} onChange={(e) => setNeed({ ...need, name: e.target.value })} className="border border-ink-border/30 bg-paper px-3 py-2 text-sm" /></label>
               <label className="flex flex-col gap-1.5"><span className="text-sm font-medium text-ink">Phone number</span><input required value={need.phone_number} onChange={(e) => setNeed({ ...need, phone_number: e.target.value })} className="border border-ink-border/30 bg-paper px-3 py-2 text-sm" /></label>

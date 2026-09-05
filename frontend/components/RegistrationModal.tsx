@@ -82,7 +82,7 @@ export default function RegistrationModal({
             </span>
           </a>
 
-          {/* Option B: users table (default role PUBLIC) */}
+          {/* Option B: users table (VICTIM / PUBLIC) */}
           <a
             href="/register/user"
             className="group flex items-start gap-4 rounded border border-ink-border p-4 transition-colors hover:border-signal-dark"
@@ -92,11 +92,10 @@ export default function RegistrationModal({
             </span>
             <span className="flex flex-col">
               <span className="font-medium text-ink">
-                Public user / requester
+                Disaster Victim / Requester
               </span>
               <span className="mt-0.5 text-sm text-slate">
-                Create an account to search for and request verified help
-                near you.
+                Register as a victim to submit emergency assistance requests or coordinate local community aid.
               </span>
             </span>
           </a>

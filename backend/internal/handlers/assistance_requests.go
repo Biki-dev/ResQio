@@ -73,6 +73,11 @@ func (h *APIHandler) SubmitAssistanceRequest(w http.ResponseWriter, r *http.Requ
 	req.Description = strings.TrimSpace(req.Description)
 	req.AddressText = strings.TrimSpace(req.AddressText)
 
+	claims, hasClaims := middleware.GetClaims(r.Context())
+	if req.PhoneNumber == "" && hasClaims && claims.Phone != "" {
+		req.PhoneNumber = claims.Phone
+	}
+
 	if req.Name == "" || req.PhoneNumber == "" {
 		respondWithError(w, http.StatusBadRequest, "name and phone_number are required")
 		return

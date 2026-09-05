@@ -63,7 +63,8 @@ func setupTestServer(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	mux.HandleFunc("GET /api/hazards/{id}", apiHandler.GetRoadHazardByID)
 
 	// Assistance Requests
-	mux.Handle("POST /api/requests", optAuthMw(http.HandlerFunc(apiHandler.SubmitAssistanceRequest)))
+	victimGuard := middleware.RequireUserRole(string(database.UserRoleVICTIM))
+	mux.Handle("POST /api/requests", authMw(victimGuard(http.HandlerFunc(apiHandler.SubmitAssistanceRequest))))
 	mux.HandleFunc("GET /api/requests", apiHandler.ListAssistanceRequests)
 	mux.HandleFunc("GET /api/requests/{id}", apiHandler.GetAssistanceRequestByID)
 	mux.HandleFunc("GET /api/requests/track/{code}", apiHandler.TrackAssistanceRequest)
@@ -472,8 +473,65 @@ func TestAssistanceRequestFormAndTracking(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(payload)
+	// 1. Unauthenticated request should fail with 401 Unauthorized
+	reqUnauth := httptest.NewRequest("POST", "/api/requests", bytes.NewReader(body))
+	reqUnauth.Header.Set("Content-Type", "application/json")
+	recUnauth := httptest.NewRecorder()
+	handler.ServeHTTP(recUnauth, reqUnauth)
+	if recUnauth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated assistance request, got: %d", recUnauth.Code)
+	}
+
+	// 2. Non-victim user (e.g., PUBLIC role) should fail with 403 Forbidden
+	publicPhone := fmt.Sprintf("+91%010d", time.Now().UnixNano()%10000000000)
+	publicUserPayload := map[string]string{
+		"phone":     publicPhone,
+		"password":  "PublicUserPass123!",
+		"full_name": "Public Citizen",
+		"role":      "PUBLIC",
+	}
+	publicBody, _ := json.Marshal(publicUserPayload)
+	regReq := httptest.NewRequest("POST", "/api/auth/users/register", bytes.NewReader(publicBody))
+	regReq.Header.Set("Content-Type", "application/json")
+	regRec := httptest.NewRecorder()
+	handler.ServeHTTP(regRec, regReq)
+	if regRec.Code != http.StatusCreated {
+		t.Fatalf("failed to register public user: %d (%s)", regRec.Code, regRec.Body.String())
+	}
+	var publicAuthResp handlers.AuthResponse
+	_ = json.NewDecoder(regRec.Body).Decode(&publicAuthResp)
+
+	reqForbidden := httptest.NewRequest("POST", "/api/requests", bytes.NewReader(body))
+	reqForbidden.Header.Set("Content-Type", "application/json")
+	reqForbidden.Header.Set("Authorization", "Bearer "+publicAuthResp.Token)
+	recForbidden := httptest.NewRecorder()
+	handler.ServeHTTP(recForbidden, reqForbidden)
+	if recForbidden.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for non-victim user, got: %d", recForbidden.Code)
+	}
+
+	// 3. User with VICTIM role should succeed with 201 Created
+	victimPhone := fmt.Sprintf("+91%010d", (time.Now().UnixNano()+1)%10000000000)
+	victimUserPayload := map[string]string{
+		"phone":     victimPhone,
+		"password":  "VictimUserPass123!",
+		"full_name": "Priya Nair",
+		"role":      "VICTIM",
+	}
+	victimBody, _ := json.Marshal(victimUserPayload)
+	vRegReq := httptest.NewRequest("POST", "/api/auth/users/register", bytes.NewReader(victimBody))
+	vRegReq.Header.Set("Content-Type", "application/json")
+	vRegRec := httptest.NewRecorder()
+	handler.ServeHTTP(vRegRec, vRegReq)
+	if vRegRec.Code != http.StatusCreated {
+		t.Fatalf("failed to register victim user: %d (%s)", vRegRec.Code, vRegRec.Body.String())
+	}
+	var victimAuthResp handlers.AuthResponse
+	_ = json.NewDecoder(vRegRec.Body).Decode(&victimAuthResp)
+
 	req := httptest.NewRequest("POST", "/api/requests", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+victimAuthResp.Token)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)

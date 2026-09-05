@@ -4,7 +4,11 @@ export enum ProviderType {
 }
 
 export enum UserRole {
+  GUEST = "GUEST",
+  VICTIM = "VICTIM",
   PUBLIC = "PUBLIC",
+  PROVIDER = "PROVIDER",
+  COORDINATOR = "COORDINATOR",
   ADMIN = "ADMIN",
 }
 
@@ -12,7 +16,7 @@ export interface User {
   id: string;
   phone: string;
   password_hash?: string;
-  role: UserRole;
+  role: UserRole | string;
   full_name: string;
   created_at?: string;
 }
@@ -21,6 +25,7 @@ export interface RegisterUserRequest {
   full_name: string;
   phone: string;
   password: string;
+  role?: UserRole | string;
 }
 
 export interface LoginUserRequest {

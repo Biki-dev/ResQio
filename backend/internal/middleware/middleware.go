@@ -129,6 +129,55 @@ func RequireAccountType(expectedType auth.AccountType) func(http.Handler) http.H
 	}
 }
 
+// RequireUserRole verifies that the request comes from an authenticated user account
+// and that their role matches one of the allowed roles.
+func RequireUserRole(allowedRoles ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := GetClaims(r.Context())
+			if !ok {
+				respondJSONError(w, http.StatusUnauthorized, "Authentication required")
+				return
+			}
+			if claims.AccountType != auth.AccountTypeUser {
+				respondJSONError(w, http.StatusForbidden, "Access forbidden for this account type")
+				return
+			}
+
+			for _, role := range allowedRoles {
+				if strings.EqualFold(claims.Role, role) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
+			respondJSONError(w, http.StatusForbidden, "Access forbidden: insufficient role permissions")
+		})
+	}
+}
+
+// RequireRole verifies that the authenticated entity has one of the allowed roles.
+func RequireRole(allowedRoles ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := GetClaims(r.Context())
+			if !ok {
+				respondJSONError(w, http.StatusUnauthorized, "Authentication required")
+				return
+			}
+
+			for _, role := range allowedRoles {
+				if strings.EqualFold(claims.Role, role) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
+			respondJSONError(w, http.StatusForbidden, "Access forbidden: insufficient role permissions")
+		})
+	}
+}
+
 // GetClaims retrieves auth claims from the context if present.
 func GetClaims(ctx context.Context) (*auth.AuthClaims, bool) {
 	claims, ok := ctx.Value(ClaimsContextKey).(*auth.AuthClaims)
