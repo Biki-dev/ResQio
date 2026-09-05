@@ -11,3 +11,5 @@ sql:
         overrides:
           - db_type: "geometry"
             go_type: "string"
+          - db_type: "vector"
+            go_type: "string"
