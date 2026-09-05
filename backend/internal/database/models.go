@@ -530,16 +530,22 @@ type Resource struct {
 }
 
 type RoadHazard struct {
-	ID            pgtype.UUID
-	ReporterID    pgtype.UUID
-	ReporterName  pgtype.Text
-	ReporterPhone pgtype.Text
-	HazardType    string
-	Severity      string
-	Location      string
-	Description   pgtype.Text
-	IsVerified    bool
-	CreatedAt     pgtype.Timestamptz
+	ID              pgtype.UUID
+	ReporterID      pgtype.UUID
+	ReporterName    pgtype.Text
+	ReporterPhone   pgtype.Text
+	HazardType      string
+	Severity        string
+	Location        string
+	Description     pgtype.Text
+	IsVerified      bool
+	CreatedAt       pgtype.Timestamptz
+	ImageUrl        pgtype.Text
+	PredictedClass  pgtype.Text
+	ConfidenceScore pgtype.Float8
+	PriorityScore   float64
+	ClusterID       pgtype.UUID
+	ClusterSize     int32
 }
 
 type User struct {

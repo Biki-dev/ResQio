@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -25,6 +26,11 @@ type MatchResult struct {
 	Text     string  `json:"text"`
 	Category string  `json:"category"`
 	Score    float64 `json:"score"`
+}
+
+type ClassificationResult struct {
+	Class      string  `json:"predicted_class"`
+	Confidence float64 `json:"confidence_score"`
 }
 
 type matchResponse struct {
@@ -83,6 +89,34 @@ func (c *Client) GenerateEmbedding(ctx context.Context, text string) ([]float32,
 		return nil, fmt.Errorf("empty embedding returned")
 	}
 	return res.Embeddings[0], nil
+}
+
+func (c *Client) PredictImage(ctx context.Context, imageURL string) (ClassificationResult, error) {
+	payload, _ := json.Marshal(map[string]string{"image_url": imageURL})
+	classificationURL := os.Getenv("YOLO_SERVICE_URL")
+	if classificationURL == "" {
+		classificationURL = c.baseURL
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", classificationURL+"/predict", bytes.NewReader(payload))
+	if err != nil {
+		return ClassificationResult{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return ClassificationResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ClassificationResult{}, fmt.Errorf("classification service returned status %d", resp.StatusCode)
+	}
+
+	var result ClassificationResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ClassificationResult{}, err
+	}
+	return result, nil
 }
 
 func (c *Client) UpsertResource(ctx context.Context, id, text, category string, metadata map[string]interface{}) error {

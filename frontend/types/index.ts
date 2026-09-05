@@ -131,6 +131,12 @@ export interface RoadHazardResponse {
   location: string;
   description: string;
   is_verified: boolean;
+  image_url?: string;
+  predicted_class?: string;
+  confidence_score?: number;
+  priority_score: number;
+  cluster_id?: string;
+  cluster_size: number;
   created_at: string;
 }
 

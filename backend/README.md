@@ -21,6 +21,15 @@ make run
 ```
 *Health Check*: Verify server is running by opening `http://localhost:8080/healthz` in your browser.
 
+### Step 1b: Start image classification
+In a second terminal, install the YOLO service once and start it:
+```bash
+cd backend
+make yolo-install
+make yolo-run
+```
+The service loads `backend/yolo26s-cls.pt` and listens on `http://localhost:8086`. If it is not running, issue submissions still save the image and fall back to the selected hazard type as the predicted class.
+
 ### Step 2: Configure Frontend Environment
 Create or verify `frontend/.env.local`:
 ```env

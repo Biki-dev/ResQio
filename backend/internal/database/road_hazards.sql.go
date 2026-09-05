@@ -20,22 +20,34 @@ INSERT INTO road_hazards (
     severity,
     location,
     description,
-    is_verified
+    is_verified,
+    image_url,
+    predicted_class,
+    confidence_score,
+    priority_score,
+    cluster_id,
+    cluster_size
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
 )
-RETURNING id, reporter_id, reporter_name, reporter_phone, hazard_type, severity, location, description, is_verified, created_at
+RETURNING id, reporter_id, reporter_name, reporter_phone, hazard_type, severity, location, description, is_verified, created_at, image_url, predicted_class, confidence_score, priority_score, cluster_id, cluster_size
 `
 
 type CreateRoadHazardParams struct {
-	ReporterID    pgtype.UUID
-	ReporterName  pgtype.Text
-	ReporterPhone pgtype.Text
-	HazardType    string
-	Severity      string
-	Location      string
-	Description   pgtype.Text
-	IsVerified    bool
+	ReporterID      pgtype.UUID
+	ReporterName    pgtype.Text
+	ReporterPhone   pgtype.Text
+	HazardType      string
+	Severity        string
+	Location        string
+	Description     pgtype.Text
+	IsVerified      bool
+	ImageUrl        pgtype.Text
+	PredictedClass  pgtype.Text
+	ConfidenceScore pgtype.Float8
+	PriorityScore   float64
+	ClusterID       pgtype.UUID
+	ClusterSize     int32
 }
 
 func (q *Queries) CreateRoadHazard(ctx context.Context, arg CreateRoadHazardParams) (RoadHazard, error) {
@@ -48,6 +60,12 @@ func (q *Queries) CreateRoadHazard(ctx context.Context, arg CreateRoadHazardPara
 		arg.Location,
 		arg.Description,
 		arg.IsVerified,
+		arg.ImageUrl,
+		arg.PredictedClass,
+		arg.ConfidenceScore,
+		arg.PriorityScore,
+		arg.ClusterID,
+		arg.ClusterSize,
 	)
 	var i RoadHazard
 	err := row.Scan(
@@ -61,12 +79,18 @@ func (q *Queries) CreateRoadHazard(ctx context.Context, arg CreateRoadHazardPara
 		&i.Description,
 		&i.IsVerified,
 		&i.CreatedAt,
+		&i.ImageUrl,
+		&i.PredictedClass,
+		&i.ConfidenceScore,
+		&i.PriorityScore,
+		&i.ClusterID,
+		&i.ClusterSize,
 	)
 	return i, err
 }
 
 const getRoadHazardByID = `-- name: GetRoadHazardByID :one
-SELECT id, reporter_id, reporter_name, reporter_phone, hazard_type, severity, location, description, is_verified, created_at FROM road_hazards
+SELECT id, reporter_id, reporter_name, reporter_phone, hazard_type, severity, location, description, is_verified, created_at, image_url, predicted_class, confidence_score, priority_score, cluster_id, cluster_size FROM road_hazards
 WHERE id = $1 LIMIT 1
 `
 
@@ -84,13 +108,19 @@ func (q *Queries) GetRoadHazardByID(ctx context.Context, id pgtype.UUID) (RoadHa
 		&i.Description,
 		&i.IsVerified,
 		&i.CreatedAt,
+		&i.ImageUrl,
+		&i.PredictedClass,
+		&i.ConfidenceScore,
+		&i.PriorityScore,
+		&i.ClusterID,
+		&i.ClusterSize,
 	)
 	return i, err
 }
 
 const listRoadHazards = `-- name: ListRoadHazards :many
-SELECT id, reporter_id, reporter_name, reporter_phone, hazard_type, severity, location, description, is_verified, created_at FROM road_hazards
-ORDER BY created_at DESC
+SELECT id, reporter_id, reporter_name, reporter_phone, hazard_type, severity, location, description, is_verified, created_at, image_url, predicted_class, confidence_score, priority_score, cluster_id, cluster_size FROM road_hazards
+ORDER BY priority_score DESC, created_at DESC
 LIMIT $1 OFFSET $2
 `
 
@@ -119,6 +149,12 @@ func (q *Queries) ListRoadHazards(ctx context.Context, arg ListRoadHazardsParams
 			&i.Description,
 			&i.IsVerified,
 			&i.CreatedAt,
+			&i.ImageUrl,
+			&i.PredictedClass,
+			&i.ConfidenceScore,
+			&i.PriorityScore,
+			&i.ClusterID,
+			&i.ClusterSize,
 		); err != nil {
 			return nil, err
 		}
@@ -131,9 +167,9 @@ func (q *Queries) ListRoadHazards(ctx context.Context, arg ListRoadHazardsParams
 }
 
 const listRoadHazardsByReporter = `-- name: ListRoadHazardsByReporter :many
-SELECT id, reporter_id, reporter_name, reporter_phone, hazard_type, severity, location, description, is_verified, created_at FROM road_hazards
+SELECT id, reporter_id, reporter_name, reporter_phone, hazard_type, severity, location, description, is_verified, created_at, image_url, predicted_class, confidence_score, priority_score, cluster_id, cluster_size FROM road_hazards
 WHERE reporter_id = $1
-ORDER BY created_at DESC
+ORDER BY priority_score DESC, created_at DESC
 LIMIT $2 OFFSET $3
 `
 
@@ -163,6 +199,12 @@ func (q *Queries) ListRoadHazardsByReporter(ctx context.Context, arg ListRoadHaz
 			&i.Description,
 			&i.IsVerified,
 			&i.CreatedAt,
+			&i.ImageUrl,
+			&i.PredictedClass,
+			&i.ConfidenceScore,
+			&i.PriorityScore,
+			&i.ClusterID,
+			&i.ClusterSize,
 		); err != nil {
 			return nil, err
 		}
@@ -178,7 +220,7 @@ const verifyRoadHazard = `-- name: VerifyRoadHazard :one
 UPDATE road_hazards
 SET is_verified = $2
 WHERE id = $1
-RETURNING id, reporter_id, reporter_name, reporter_phone, hazard_type, severity, location, description, is_verified, created_at
+RETURNING id, reporter_id, reporter_name, reporter_phone, hazard_type, severity, location, description, is_verified, created_at, image_url, predicted_class, confidence_score, priority_score, cluster_id, cluster_size
 `
 
 type VerifyRoadHazardParams struct {
@@ -200,6 +242,12 @@ func (q *Queries) VerifyRoadHazard(ctx context.Context, arg VerifyRoadHazardPara
 		&i.Description,
 		&i.IsVerified,
 		&i.CreatedAt,
+		&i.ImageUrl,
+		&i.PredictedClass,
+		&i.ConfidenceScore,
+		&i.PriorityScore,
+		&i.ClusterID,
+		&i.ClusterSize,
 	)
 	return i, err
 }

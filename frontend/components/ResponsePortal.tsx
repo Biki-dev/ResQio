@@ -12,6 +12,7 @@ import {
   submitAssistanceRequest,
   submitRoadHazard,
   trackAssistanceRequest,
+  uploadPhotoWithMulter,
 } from "@/lib/api";
 import type {
   AssistanceRequestResponse,
@@ -20,7 +21,7 @@ import type {
   RoadHazardResponse,
 } from "@/types";
 
-const initialIssue = { name: "", phone_number: "", description: "" };
+const initialIssue = { name: "", phone_number: "", description: "", photo_url: "" };
 const initialNeed = {
   name: "",
   phone_number: "",
@@ -57,6 +58,7 @@ export default function ResponsePortal() {
   const [aidItems, setAidItems] = useState<MutualAidItemResponse[]>([]);
   const [resources, setResources] = useState<ResourceResponse[]>([]);
   const [issue, setIssue] = useState(initialIssue);
+  const [issuePhoto, setIssuePhoto] = useState<File | null>(null);
   const [need, setNeed] = useState(initialNeed);
   const [trackingCode, setTrackingCode] = useState("");
   const [trackedRequest, setTrackedRequest] = useState<AssistanceRequestResponse | null>(null);
@@ -101,8 +103,15 @@ export default function ResponsePortal() {
     setMessage("");
     try {
       const location = await requestDeviceLocation();
+      let photoURL = issue.photo_url;
+      if (issuePhoto) {
+        const uploadResult = await uploadPhotoWithMulter(issuePhoto);
+        if (!uploadResult.success) throw new Error(uploadResult.error);
+        photoURL = uploadResult.data.url;
+      }
       const result = await submitRoadHazard({
         ...issue,
+        photo_url: photoURL,
         hazard_type: "ROAD_INCIDENT",
         severity: "MEDIUM",
         ...location,
@@ -113,6 +122,7 @@ export default function ResponsePortal() {
         name: session?.fullName || "",
         phone_number: session?.phone || "",
       }));
+      setIssuePhoto(null);
       setMessage("Issue submitted. Thank you for helping responders verify the situation.");
       await refreshFeeds();
     } catch (error) {
@@ -186,6 +196,7 @@ export default function ResponsePortal() {
               <label className="flex flex-col gap-1.5"><span className="text-sm font-medium text-ink">Phone number</span><input required value={issue.phone_number} onChange={(e) => setIssue({ ...issue, phone_number: e.target.value })} className="border border-ink-border/30 bg-paper px-3 py-2 text-sm" /></label>
             </div>
             <label className="mt-4 flex flex-col gap-1.5"><span className="text-sm font-medium text-ink">What did you observe?</span><textarea required rows={4} value={issue.description} onChange={(e) => setIssue({ ...issue, description: e.target.value })} className="border border-ink-border/30 bg-paper px-3 py-2 text-sm" /></label>
+            <label className="mt-4 flex flex-col gap-1.5"><span className="text-sm font-medium text-ink">Issue photo</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setIssuePhoto(e.target.files?.[0] || null)} className="border border-dashed border-ink-border/40 bg-paper-dim px-3 py-3 text-sm" /><span className="text-xs text-slate">Optional. The image is stored locally and classified for responder prioritization.</span></label>
             <button disabled={submitting} className="mt-5 bg-signal px-5 py-3 text-sm font-semibold text-ink disabled:opacity-50">{submitting ? "Sending..." : "Share issue location"}</button>
           </form>
 
@@ -351,7 +362,11 @@ export default function ResponsePortal() {
 
         <div className="mt-12 grid gap-8 md:grid-cols-2">
           <Feed title="Recent issues" loading={loading}>
-            {issues.slice(0, 5).map((item) => <li key={item.id}><strong>{item.hazard_type.replaceAll("_", " ")}</strong><span>{item.description || "Location reported"}</span><small>{formatDate(item.created_at)}</small></li>)}
+            {issues.slice(0, 5).map((item) => <li key={item.id}>
+              <strong>{item.predicted_class || item.hazard_type.replaceAll("_", " ")}</strong>
+              <span>{item.description || "Location reported"}</span>
+              <small>Priority {item.priority_score.toFixed(1)}{item.confidence_score ? ` · ${(item.confidence_score * 100).toFixed(0)}% confidence` : ""}{item.cluster_size > 1 ? ` · ${item.cluster_size} nearby reports` : ""}</small>
+            </li>)}
           </Feed>
           <Feed title="Assistance requests" loading={loading}>
             {requests.slice(0, 5).map((item) => <li key={item.id}><strong>{item.category}</strong><span>{item.quantity_needed} requested · {item.status}</span><small>{formatDate(item.created_at)}</small></li>)}
