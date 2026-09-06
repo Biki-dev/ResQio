@@ -28,7 +28,7 @@ cd backend
 make yolo-install
 make yolo-run
 ```
-The service loads `backend/yolo26s-cls.pt` and listens on `http://localhost:8086`. If it is not running, issue submissions still save the image and fall back to the selected hazard type as the predicted class.
+The service loads `backend/bestmodel.pt` by default and listens on `http://localhost:8086`. Set `YOLO_MODEL_PATH` when the model is stored elsewhere. If the service is not running, issue submissions still save the image and fall back to the selected hazard type as the predicted class.
 
 ### Step 2: Configure Frontend Environment
 Create or verify `frontend/.env.local`:

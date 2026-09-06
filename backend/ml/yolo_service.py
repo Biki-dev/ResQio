@@ -9,8 +9,10 @@ from ultralytics import YOLO
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 MODEL_PATH = Path(
-    os.getenv("YOLO_MODEL_PATH", BASE_DIR / "yolo26s-cls.pt" / "best")
+    os.getenv("YOLO_MODEL_PATH", BASE_DIR / "bestmodel.pt")
 )
+if MODEL_PATH.is_dir() and (MODEL_PATH / "best").is_dir():
+    MODEL_PATH = MODEL_PATH / "best"
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", BASE_DIR.parent / "frontend" / "public" / "uploads"))
 PORT = int(os.getenv("YOLO_PORT", "8086"))
 
@@ -30,6 +32,11 @@ def prepare_model_path(path: Path) -> Path:
 
 
 MODEL_FILE_PATH = prepare_model_path(MODEL_PATH)
+if not MODEL_FILE_PATH.is_file():
+    raise FileNotFoundError(
+        f"YOLO model not found at {MODEL_FILE_PATH}. "
+        "Set YOLO_MODEL_PATH or add backend/bestmodel.pt."
+    )
 model = YOLO(str(MODEL_FILE_PATH), task="classify")
 
 
