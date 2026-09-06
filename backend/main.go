@@ -66,6 +66,7 @@ func main() {
 	userGuard := middleware.RequireAccountType(auth.AccountTypeUser)
 	providerGuard := middleware.RequireAccountType(auth.AccountTypeProvider)
 	victimGuard := middleware.RequireUserRole(string(database.UserRoleVICTIM))
+	adminGuard := middleware.RequireUserRole(string(database.UserRoleADMIN))
 
 	// User Routes
 	mux.HandleFunc("POST /api/auth/users/register", apiHandler.RegisterUser)
@@ -118,7 +119,18 @@ func main() {
 	mux.Handle("POST /api/provider/pings/{id}/reject", authMw(providerGuard(http.HandlerFunc(apiHandler.RejectPing))))
 
 	// Admin / System Escalation Alerts
-	mux.HandleFunc("GET /api/admin/alerts", apiHandler.GetExhaustedAlerts)
+	mux.Handle("GET /api/admin/overview", authMw(adminGuard(http.HandlerFunc(apiHandler.GetAdminOverview))))
+	mux.Handle("GET /api/admin/alerts", authMw(adminGuard(http.HandlerFunc(apiHandler.GetExhaustedAlerts))))
+	mux.Handle("GET /api/admin/users", authMw(adminGuard(http.HandlerFunc(apiHandler.ListAdminUsers))))
+	mux.Handle("PUT /api/admin/users/{id}/role", authMw(adminGuard(http.HandlerFunc(apiHandler.UpdateAdminUserRole))))
+	mux.Handle("GET /api/admin/providers", authMw(adminGuard(http.HandlerFunc(apiHandler.ListAdminProviders))))
+	mux.Handle("PUT /api/admin/providers/{id}/status", authMw(adminGuard(http.HandlerFunc(apiHandler.UpdateAdminProviderStatus))))
+	mux.Handle("GET /api/admin/audit", authMw(adminGuard(http.HandlerFunc(apiHandler.ListAdminAuditLogs))))
+	mux.Handle("GET /api/admin/hazards", authMw(adminGuard(http.HandlerFunc(apiHandler.ListAdminHazards))))
+	mux.Handle("PUT /api/admin/hazards/{id}/verify", authMw(adminGuard(http.HandlerFunc(apiHandler.VerifyAdminHazard))))
+	mux.Handle("GET /api/admin/requests", authMw(adminGuard(http.HandlerFunc(apiHandler.ListAdminRequests))))
+	mux.Handle("GET /api/admin/resources", authMw(adminGuard(http.HandlerFunc(apiHandler.ListAdminResources))))
+	mux.Handle("GET /api/admin/camps", authMw(adminGuard(http.HandlerFunc(apiHandler.ListAdminCamps))))
 
 	// System & Health
 	mux.HandleFunc("GET /healthz", apiHandler.Healthz)

@@ -222,3 +222,38 @@ func (h *APIHandler) GetExhaustedAlerts(w http.ResponseWriter, r *http.Request) 
 		"total":  len(alerts),
 	})
 }
+
+type AdminOverviewResponse struct {
+	Users             int64 `json:"users"`
+	Providers         int64 `json:"providers"`
+	OpenRequests      int64 `json:"open_requests"`
+	CriticalRequests  int64 `json:"critical_requests"`
+	ActiveHazards     int64 `json:"active_hazards"`
+	ActiveCamps       int64 `json:"active_camps"`
+	PendingDispatches int64 `json:"pending_dispatches"`
+	ExhaustedRequests int64 `json:"exhausted_requests"`
+}
+
+func (h *APIHandler) GetAdminOverview(w http.ResponseWriter, r *http.Request) {
+	var overview AdminOverviewResponse
+	queries := []struct {
+		value *int64
+		sql   string
+	}{
+		{&overview.Users, `SELECT COUNT(*) FROM users`},
+		{&overview.Providers, `SELECT COUNT(*) FROM providers`},
+		{&overview.OpenRequests, `SELECT COUNT(*) FROM assistance_requests WHERE status NOT IN ('FULFILLED', 'CANCELLED')`},
+		{&overview.CriticalRequests, `SELECT COUNT(*) FROM assistance_requests WHERE priority = 'CRITICAL' AND status NOT IN ('FULFILLED', 'CANCELLED')`},
+		{&overview.ActiveHazards, `SELECT COUNT(*) FROM road_hazards WHERE is_verified = FALSE AND created_at >= NOW() - INTERVAL '30 days'`},
+		{&overview.ActiveCamps, `SELECT COUNT(*) FROM distribution_camps WHERE is_active = TRUE`},
+		{&overview.PendingDispatches, `SELECT COUNT(*) FROM dispatch_pings WHERE status = 'PENDING' AND expires_at > NOW()`},
+		{&overview.ExhaustedRequests, `SELECT COUNT(*) FROM assistance_requests WHERE dispatch_status = 'EXHAUSTED'`},
+	}
+	for _, query := range queries {
+		if err := h.pool.QueryRow(r.Context(), query.sql).Scan(query.value); err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to load admin overview")
+			return
+		}
+	}
+	respondWithJSON(w, http.StatusOK, overview)
+}

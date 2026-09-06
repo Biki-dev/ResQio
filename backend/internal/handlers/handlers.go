@@ -142,8 +142,11 @@ func (h *APIHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		upperRole := database.UserRole(strings.ToUpper(strings.TrimSpace(req.Role)))
 		switch upperRole {
 		case database.UserRoleGUEST, database.UserRoleVICTIM, database.UserRolePUBLIC,
-			database.UserRolePROVIDER, database.UserRoleCOORDINATOR, database.UserRoleADMIN:
+			database.UserRolePROVIDER, database.UserRoleCOORDINATOR:
 			role = upperRole
+		case database.UserRoleADMIN:
+			respondWithError(w, http.StatusForbidden, "ADMIN accounts can only be created by an administrator")
+			return
 		default:
 			respondWithError(w, http.StatusBadRequest, fmt.Sprintf("invalid role '%s'", req.Role))
 			return
@@ -232,6 +235,11 @@ func (h *APIHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respondWithError(w, http.StatusInternalServerError, "Failed to query user")
+		return
+	}
+	var userActive bool
+	if err := h.pool.QueryRow(r.Context(), `SELECT is_active FROM users WHERE id = $1`, user.ID).Scan(&userActive); err == nil && !userActive {
+		respondWithError(w, http.StatusForbidden, "This user account is inactive")
 		return
 	}
 
@@ -488,6 +496,11 @@ func (h *APIHandler) LoginProvider(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respondWithError(w, http.StatusInternalServerError, "Failed to query provider")
+		return
+	}
+	var providerActive bool
+	if err := h.pool.QueryRow(r.Context(), `SELECT is_active FROM providers WHERE id = $1`, provider.ID).Scan(&providerActive); err == nil && !providerActive {
+		respondWithError(w, http.StatusForbidden, "This provider account is inactive")
 		return
 	}
 

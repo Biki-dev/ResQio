@@ -1,5 +1,9 @@
 import type {
   ActivePing,
+  AdminOverview,
+  AdminAuditLog,
+  AdminProvider,
+  AdminUser,
   AuthResponse,
   AssistanceRequestResponse,
   DisasterReportResponse,
@@ -447,5 +451,35 @@ export function rejectDispatchPing(pingId: string) {
 export function getAdminAlerts() {
   return request<{ alerts: ExhaustedAlert[]; total: number }>("/admin/alerts");
 }
+
+export function getAdminOverview() {
+  return request<AdminOverview>("/admin/overview");
+}
+
+export function getAdminUsers() {
+  return request<AdminUser[]>("/admin/users?limit=100");
+}
+
+export function updateAdminUserRole(id: string, role: string) {
+  return request<AdminUser, { role: string }>(`/admin/users/${encodeURIComponent(id)}/role`, { method: "PUT", body: { role } });
+}
+
+export function getAdminProviders() {
+  return request<AdminProvider[]>("/admin/providers?limit=100");
+}
+
+export function updateAdminProviderStatus(id: string, payload: { is_active?: boolean; is_verified?: boolean }) {
+  return request<AdminProvider, { is_active?: boolean; is_verified?: boolean }>(`/admin/providers/${encodeURIComponent(id)}/status`, { method: "PUT", body: payload });
+}
+
+export function getAdminAuditLogs() {
+  return request<AdminAuditLog[]>("/admin/audit?limit=100");
+}
+
+export function getAdminHazards() { return request<RoadHazardResponse[]>("/admin/hazards?limit=100"); }
+export function verifyAdminHazard(id: string, isVerified: boolean) { return request<{ id: string; is_verified: boolean }, { is_verified: boolean }>(`/admin/hazards/${encodeURIComponent(id)}/verify`, { method: "PUT", body: { is_verified: isVerified } }); }
+export function getAdminRequests() { return request<AssistanceRequestResponse[]>("/admin/requests?limit=100"); }
+export function getAdminResources() { return request<ResourceResponse[]>("/admin/resources?limit=100"); }
+export function getAdminCamps() { return request<DistributionCamp[]>("/admin/camps?limit=100"); }
 
 

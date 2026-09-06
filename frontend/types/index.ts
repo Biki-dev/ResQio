@@ -313,3 +313,45 @@ export interface DistributionCampRequest {
   latitude: number;
   longitude: number;
 }
+
+export interface AdminOverview {
+  users: number;
+  providers: number;
+  open_requests: number;
+  critical_requests: number;
+  active_hazards: number;
+  active_camps: number;
+  pending_dispatches: number;
+  exhausted_requests: number;
+}
+
+export interface AdminUser {
+  id: string;
+  phone: string;
+  full_name: string;
+  role: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AdminProvider {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  state: string;
+  district: string;
+  is_active: boolean;
+  is_verified: boolean;
+  created_at: string;
+}
+
+export interface AdminAuditLog {
+  id: string;
+  admin_user_id?: string;
+  action: string;
+  target_type: string;
+  target_id?: string;
+  details?: Record<string, string>;
+  created_at: string;
+}

@@ -44,6 +44,31 @@ npm run dev
 ```
 The frontend is available at `http://localhost:3000`.
 
+## Admin Access
+
+Admin accounts cannot be created through public registration. Promote an existing user directly in PostgreSQL, then sign in again to receive an admin JWT:
+
+```sql
+UPDATE users SET role = 'ADMIN' WHERE phone = '<admin-phone-number>';
+```
+
+The admin dashboard is available at `http://localhost:3000/admin`. Backend admin routes require both a valid user JWT and the `ADMIN` role.
+
+Admin management endpoints include:
+
+```text
+GET /api/admin/users
+PUT /api/admin/users/:id/role
+GET /api/admin/providers
+PUT /api/admin/providers/:id/status
+GET /api/admin/hazards
+PUT /api/admin/hazards/:id/verify
+GET /api/admin/requests
+GET /api/admin/resources
+GET /api/admin/camps
+GET /api/admin/audit
+```
+
 ---
 
 ## 2. API Endpoints Reference
