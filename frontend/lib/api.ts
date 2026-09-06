@@ -481,5 +481,6 @@ export function verifyAdminHazard(id: string, isVerified: boolean) { return requ
 export function getAdminRequests() { return request<AssistanceRequestResponse[]>("/admin/requests?limit=100"); }
 export function getAdminResources() { return request<ResourceResponse[]>("/admin/resources?limit=100"); }
 export function getAdminCamps() { return request<DistributionCamp[]>("/admin/camps?limit=100"); }
+export function rebuildAdminHazardClusters() { return request<{ message: string; processed: number }>("/admin/ai/rebuild-hazard-clusters", { method: "POST" }); }
 
 

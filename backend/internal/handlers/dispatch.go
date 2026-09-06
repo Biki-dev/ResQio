@@ -232,6 +232,10 @@ type AdminOverviewResponse struct {
 	ActiveCamps       int64 `json:"active_camps"`
 	PendingDispatches int64 `json:"pending_dispatches"`
 	ExhaustedRequests int64 `json:"exhausted_requests"`
+	EmbeddedRequests  int64 `json:"embedded_requests"`
+	EmbeddedResources int64 `json:"embedded_resources"`
+	HazardClusters    int64 `json:"hazard_clusters"`
+	ClusteredHazards  int64 `json:"clustered_hazards"`
 }
 
 func (h *APIHandler) GetAdminOverview(w http.ResponseWriter, r *http.Request) {
@@ -248,6 +252,10 @@ func (h *APIHandler) GetAdminOverview(w http.ResponseWriter, r *http.Request) {
 		{&overview.ActiveCamps, `SELECT COUNT(*) FROM distribution_camps WHERE is_active = TRUE`},
 		{&overview.PendingDispatches, `SELECT COUNT(*) FROM dispatch_pings WHERE status = 'PENDING' AND expires_at > NOW()`},
 		{&overview.ExhaustedRequests, `SELECT COUNT(*) FROM assistance_requests WHERE dispatch_status = 'EXHAUSTED'`},
+		{&overview.EmbeddedRequests, `SELECT COUNT(*) FROM assistance_requests WHERE embedding IS NOT NULL`},
+		{&overview.EmbeddedResources, `SELECT COUNT(*) FROM resources WHERE embedding IS NOT NULL`},
+		{&overview.HazardClusters, `SELECT COUNT(DISTINCT cluster_id) FROM road_hazards WHERE cluster_id IS NOT NULL`},
+		{&overview.ClusteredHazards, `SELECT COUNT(*) FROM road_hazards WHERE cluster_size > 1`},
 	}
 	for _, query := range queries {
 		if err := h.pool.QueryRow(r.Context(), query.sql).Scan(query.value); err != nil {

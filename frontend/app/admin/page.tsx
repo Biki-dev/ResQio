@@ -16,12 +16,13 @@ import {
   getSession,
   updateAdminProviderStatus,
   updateAdminUserRole,
+  rebuildAdminHazardClusters,
   verifyAdminHazard,
 } from "@/lib/api";
 import type { AdminAuditLog, AdminOverview, AdminProvider, AdminUser, AssistanceRequestResponse, DistributionCamp, ExhaustedAlert, ResourceResponse, RoadHazardResponse } from "@/types";
 import { AlertTriangle, Check, History, LogOut, RefreshCw, ShieldCheck, Users } from "lucide-react";
 
-const EMPTY_OVERVIEW: AdminOverview = { users: 0, providers: 0, open_requests: 0, critical_requests: 0, active_hazards: 0, active_camps: 0, pending_dispatches: 0, exhausted_requests: 0 };
+const EMPTY_OVERVIEW: AdminOverview = { users: 0, providers: 0, open_requests: 0, critical_requests: 0, active_hazards: 0, active_camps: 0, pending_dispatches: 0, exhausted_requests: 0, embedded_requests: 0, embedded_resources: 0, hazard_clusters: 0, clustered_hazards: 0 };
 const ROLE_OPTIONS = ["PUBLIC", "VICTIM", "PROVIDER", "COORDINATOR", "ADMIN"];
 
 export default function AdminPage() {
@@ -87,6 +88,13 @@ export default function AdminPage() {
     setMessage(`Issue ${result.data.is_verified ? "verified" : "unverified"}.`);
   }
 
+  async function rebuildClusters() {
+    const result = await rebuildAdminHazardClusters();
+    if (!result.success) { setError(result.error); return; }
+    setMessage(`${result.data.processed} hazard records processed into location/class clusters.`);
+    await loadDashboard();
+  }
+
   function signOut() { clearSession(); window.location.href = "/login"; }
   const metrics = [["Users", overview.users], ["Providers", overview.providers], ["Open requests", overview.open_requests], ["Critical requests", overview.critical_requests], ["Unverified hazards", overview.active_hazards], ["Active camps", overview.active_camps], ["Pending dispatches", overview.pending_dispatches], ["Exhausted requests", overview.exhausted_requests]] as const;
 
@@ -100,6 +108,7 @@ export default function AdminPage() {
       {error && <div className="mt-6 border border-alert/40 bg-alert/10 p-4 text-sm text-alert">{error}</div>}
       {message && <div className="mt-6 border border-verified/40 bg-verified/10 p-4 text-sm text-ink">{message}</div>}
       <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{metrics.map(([label, value]) => <div key={label} className="border border-ink-border/25 bg-paper p-5"><span className="text-[10px] font-bold uppercase tracking-wider text-signal-dark">{label}</span><p className="mt-4 font-display text-3xl font-bold text-ink">{value}</p></div>)}</section>
+      <section className="mt-8 border border-ink-border/25 bg-paper p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-display text-xl font-bold text-ink">AI embeddings & clustering</h2><p className="mt-1 text-xs text-slate">Embeddings power dispatch/resource matching. Hazard clusters combine the same predicted class within 100 meters.</p></div><button type="button" onClick={() => void rebuildClusters()} className="rounded bg-signal px-4 py-2 text-xs font-bold text-ink">Rebuild hazard clusters</button></div><div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><div><span className="text-xs text-slate">Embedded requests</span><p className="mt-1 text-2xl font-bold text-ink">{overview.embedded_requests}</p></div><div><span className="text-xs text-slate">Embedded resources</span><p className="mt-1 text-2xl font-bold text-ink">{overview.embedded_resources}</p></div><div><span className="text-xs text-slate">Hazard clusters</span><p className="mt-1 text-2xl font-bold text-ink">{overview.hazard_clusters}</p></div><div><span className="text-xs text-slate">Clustered hazards</span><p className="mt-1 text-2xl font-bold text-ink">{overview.clustered_hazards}</p></div></div></section>
 
       <section className="mt-10 grid gap-8 lg:grid-cols-2">
         <div className="border border-ink-border/25 bg-paper p-6"><div className="flex items-center gap-2 border-b border-ink-border/20 pb-4"><Users className="h-5 w-5 text-signal-dark" /><h2 className="font-display text-xl font-bold text-ink">User permissions</h2></div><div className="mt-4 max-h-[420px] overflow-auto">{users.map((user) => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-border/15 py-3"><div><p className="font-semibold text-ink">{user.full_name}</p><p className="text-xs text-slate">{user.phone} · {user.is_active ? "Active" : "Inactive"}</p></div><select value={user.role} onChange={(event) => void changeRole(user, event.target.value)} className="border border-ink-border/30 bg-paper px-2 py-1 text-xs font-semibold text-ink">{ROLE_OPTIONS.map((role) => <option key={role}>{role}</option>)}</select></div>)}</div></div>

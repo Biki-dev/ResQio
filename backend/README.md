@@ -67,7 +67,11 @@ GET /api/admin/requests
 GET /api/admin/resources
 GET /api/admin/camps
 GET /api/admin/audit
+GET /api/admin/overview
+POST /api/admin/ai/rebuild-hazard-clusters
 ```
+
+The admin dashboard's AI section reports embedding coverage for assistance requests and provider resources, plus hazard cluster counts. Rebuilding clusters groups hazards with the same predicted class within 100 meters and recalculates each cluster size; it does not regenerate embeddings or change dispatch matching.
 
 ---
 

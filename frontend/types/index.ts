@@ -323,6 +323,10 @@ export interface AdminOverview {
   active_camps: number;
   pending_dispatches: number;
   exhausted_requests: number;
+  embedded_requests: number;
+  embedded_resources: number;
+  hazard_clusters: number;
+  clustered_hazards: number;
 }
 
 export interface AdminUser {

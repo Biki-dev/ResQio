@@ -212,6 +212,64 @@ func (h *APIHandler) VerifyAdminHazard(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, 200, map[string]interface{}{"id": id.String(), "is_verified": verified})
 }
 
+func (h *APIHandler) RebuildAdminHazardClusters(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.pool.Query(r.Context(), `
+		SELECT id, predicted_class, ST_AsText(location), created_at
+		FROM road_hazards
+		WHERE predicted_class IS NOT NULL AND predicted_class <> ''
+		ORDER BY created_at ASC`)
+	if err != nil {
+		respondWithError(w, 500, "Failed to load hazards for clustering")
+		return
+	}
+	defer rows.Close()
+	type hazard struct {
+		id              uuid.UUID
+		class, location string
+		createdAt       time.Time
+	}
+	hazards := make([]hazard, 0)
+	for rows.Next() {
+		var item hazard
+		if err := rows.Scan(&item.id, &item.class, &item.location, &item.createdAt); err != nil {
+			respondWithError(w, 500, "Failed to read hazards for clustering")
+			return
+		}
+		hazards = append(hazards, item)
+	}
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		respondWithError(w, 500, "Failed to start cluster rebuild")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err := tx.Exec(r.Context(), `UPDATE road_hazards SET cluster_id = gen_random_uuid(), cluster_size = 1`); err != nil {
+		respondWithError(w, 500, "Failed to reset clusters")
+		return
+	}
+	for _, item := range hazards {
+		var clusterID uuid.UUID
+		err := tx.QueryRow(r.Context(), `SELECT cluster_id FROM road_hazards WHERE predicted_class = $1 AND created_at < $2 AND ST_DWithin(location::geography, ST_GeomFromText($3, 4326)::geography, 100) ORDER BY created_at ASC LIMIT 1`, item.class, item.createdAt, item.location).Scan(&clusterID)
+		if err != nil {
+			continue
+		}
+		if _, err := tx.Exec(r.Context(), `UPDATE road_hazards SET cluster_id = $1 WHERE id = $2`, clusterID, item.id); err != nil {
+			respondWithError(w, 500, "Failed to rebuild clusters")
+			return
+		}
+	}
+	if _, err := tx.Exec(r.Context(), `UPDATE road_hazards h SET cluster_size = c.size FROM (SELECT cluster_id, COUNT(*) AS size FROM road_hazards GROUP BY cluster_id) c WHERE h.cluster_id = c.cluster_id`); err != nil {
+		respondWithError(w, 500, "Failed to update cluster sizes")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		respondWithError(w, 500, "Failed to commit cluster rebuild")
+		return
+	}
+	h.recordAdminAudit(r, "REBUILD_HAZARD_CLUSTERS", "hazard", nil, map[string]string{"radius_meters": "100"})
+	respondWithJSON(w, 200, map[string]interface{}{"message": "Hazard clusters rebuilt", "processed": len(hazards)})
+}
+
 func adminPagination(r *http.Request) (int, int) {
 	limit, offset := 50, 0
 	if value, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && value > 0 && value <= 200 {
