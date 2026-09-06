@@ -6,6 +6,8 @@ import { ExternalLink, MapPin } from "lucide-react";
 import {
   getAssistanceRequests,
   getMyAssistanceRequests,
+  getMyMutualAidItems,
+  getMyProviderResources,
   getDistributionCamps,
   getMutualAidItems,
   getResources,
@@ -83,8 +85,8 @@ export default function ResponsePortal() {
     const [issueResult, requestResult, aidResult, resourceResult, campResult] = await Promise.all([
       issueResultPromise,
       requestResultPromise,
-      getMutualAidItems(),
-      getResources(),
+      activeSession?.accountType === "user" ? getMyMutualAidItems() : Promise.resolve({ success: true as const, data: [] as MutualAidItemResponse[] }),
+      activeSession?.accountType === "provider" ? getMyProviderResources() : Promise.resolve({ success: true as const, data: [] as ResourceResponse[] }),
       getDistributionCamps(),
     ]);
     if (issueResult.success) setIssues(issueResult.data);
@@ -413,11 +415,11 @@ export default function ResponsePortal() {
           <Feed title="Assistance requests" loading={loading}>
             {requests.slice(0, 5).map((item) => <li key={item.id}><strong>{item.category}</strong><span>{item.quantity_needed} requested · {item.status}</span><small>{formatDate(item.created_at)}</small></li>)}
           </Feed>
-          <Feed title="Community aid" loading={loading}>
-            {aidItems.slice(0, 5).map((item) => <li key={item.id}><strong>{item.item_name}</strong><span>{item.quantity} available</span><small>{item.is_claimed ? "Claimed" : "Available"}</small></li>)}
+          <Feed title={session?.accountType === "user" ? "My community aid" : "Community aid"} loading={loading}>
+            {aidItems.length === 0 ? <li><span>{session?.accountType === "user" ? "You have not posted any community aid yet." : "Sign in as a user to view your community aid posts."}</span></li> : aidItems.slice(0, 5).map((item) => <li key={item.id}><strong>{item.item_name}</strong><span>{item.quantity} available</span><small>{item.is_claimed ? "Claimed" : "Available"}</small></li>)}
           </Feed>
-          <Feed title="Provider resources" loading={loading}>
-            {resources.slice(0, 5).map((item) => <li key={item.id}><strong>{item.title}</strong><span>{item.current_capacity} {item.unit || "units"} · {item.category}</span><small>{item.status}</small></li>)}
+          <Feed title={session?.accountType === "provider" ? "My provider resources" : "Provider resources"} loading={loading}>
+            {resources.length === 0 ? <li><span>{session?.accountType === "provider" ? "You have not listed any provider resources yet." : "Sign in as a provider to view your listings."}</span></li> : resources.slice(0, 5).map((item) => <li key={item.id}><strong>{item.title}</strong><span>{item.current_capacity} {item.unit || "units"} · {item.category}</span><small>{item.status}</small></li>)}
           </Feed>
         </div>
       </div>

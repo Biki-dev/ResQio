@@ -93,6 +93,7 @@ func main() {
 	mux.Handle("POST /api/requests", authMw(victimGuard(http.HandlerFunc(apiHandler.SubmitAssistanceRequest))))
 	mux.HandleFunc("GET /api/requests", apiHandler.ListAssistanceRequests)
 	mux.Handle("GET /api/me/requests", authMw(userGuard(http.HandlerFunc(apiHandler.ListMyAssistanceRequests))))
+	mux.Handle("GET /api/me/mutual-aid", authMw(userGuard(http.HandlerFunc(apiHandler.ListMyMutualAidItems))))
 	mux.HandleFunc("GET /api/requests/{id}", apiHandler.GetAssistanceRequestByID)
 	mux.HandleFunc("GET /api/requests/track/{code}", apiHandler.TrackAssistanceRequest)
 
@@ -114,6 +115,7 @@ func main() {
 
 	// Provider Dispatch Pings (Real-Time Emergency Matching & Cascades)
 	mux.Handle("GET /api/provider/requests", authMw(providerGuard(http.HandlerFunc(apiHandler.ListProviderAssistanceRequests))))
+	mux.Handle("GET /api/provider/my-resources", authMw(providerGuard(http.HandlerFunc(apiHandler.ListMyResources))))
 	mux.Handle("GET /api/provider/pings/active", authMw(providerGuard(http.HandlerFunc(apiHandler.GetActiveProviderPing))))
 	mux.Handle("POST /api/provider/pings/{id}/accept", authMw(providerGuard(http.HandlerFunc(apiHandler.AcceptPing))))
 	mux.Handle("POST /api/provider/pings/{id}/reject", authMw(providerGuard(http.HandlerFunc(apiHandler.RejectPing))))

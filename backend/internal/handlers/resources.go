@@ -251,6 +251,35 @@ func (h *APIHandler) ListResources(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, res)
 }
 
+func (h *APIHandler) ListMyResources(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.GetClaims(r.Context())
+	if !ok || claims.AccountType != auth.AccountTypeProvider || claims.AccountID == "" {
+		respondWithError(w, 401, "Provider authentication required")
+		return
+	}
+	providerID, err := uuid.Parse(claims.AccountID)
+	if err != nil {
+		respondWithError(w, 400, "Invalid provider ID")
+		return
+	}
+	rows, err := h.pool.Query(r.Context(), `SELECT id, provider_id, title, description, category, total_capacity, current_capacity, unit, status, ST_AsText(location), contact_phone, image_url, last_updated_at, created_at FROM resources WHERE provider_id = $1 ORDER BY created_at DESC LIMIT 100`, providerID)
+	if err != nil {
+		respondWithError(w, 500, "Failed to retrieve your provider resources")
+		return
+	}
+	defer rows.Close()
+	resources := make([]ResourceResponse, 0)
+	for rows.Next() {
+		var resource database.Resource
+		if err := rows.Scan(&resource.ID, &resource.ProviderID, &resource.Title, &resource.Description, &resource.Category, &resource.TotalCapacity, &resource.CurrentCapacity, &resource.Unit, &resource.Status, &resource.Location, &resource.ContactPhone, &resource.ImageUrl, &resource.LastUpdatedAt, &resource.CreatedAt); err != nil {
+			respondWithError(w, 500, "Failed to read your provider resources")
+			return
+		}
+		resources = append(resources, ResourceResponse{ID: uuid.UUID(resource.ID.Bytes).String(), ProviderID: uuid.UUID(resource.ProviderID.Bytes).String(), Title: resource.Title, Description: pgTextToString(resource.Description), Category: string(resource.Category), TotalCapacity: resource.TotalCapacity, CurrentCapacity: resource.CurrentCapacity, Unit: pgTextToString(resource.Unit), Status: string(resource.Status), Location: resource.Location, ContactPhone: pgTextToString(resource.ContactPhone), ImageUrl: pgTextToString(resource.ImageUrl), LastUpdatedAt: resource.LastUpdatedAt.Time, CreatedAt: resource.CreatedAt.Time})
+	}
+	respondWithJSON(w, 200, resources)
+}
+
 func (h *APIHandler) GetResourceByID(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	parsedID, err := uuid.Parse(idStr)

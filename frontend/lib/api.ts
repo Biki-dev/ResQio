@@ -294,6 +294,14 @@ export function getMyAssistanceRequests(limit = 20, offset = 0) {
   return request<AssistanceRequestResponse[]>(`/me/requests?limit=${limit}&offset=${offset}`);
 }
 
+export function getMyMutualAidItems(limit = 20, offset = 0) {
+  return request<MutualAidItemResponse[]>(`/me/mutual-aid?limit=${limit}&offset=${offset}`);
+}
+
+export function getMyProviderResources() {
+  return request<ResourceResponse[]>("/provider/my-resources");
+}
+
 export function getAssistanceRequestById(id: string) {
   return request<AssistanceRequestResponse>(`/requests/${encodeURIComponent(id)}`);
 }

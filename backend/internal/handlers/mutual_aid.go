@@ -161,6 +161,47 @@ func (h *APIHandler) ListMutualAidItems(w http.ResponseWriter, r *http.Request) 
 	respondWithJSON(w, http.StatusOK, res)
 }
 
+func (h *APIHandler) ListMyMutualAidItems(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.GetClaims(r.Context())
+	if !ok || claims.AccountType != auth.AccountTypeUser || claims.AccountID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User authentication required")
+		return
+	}
+	userID, err := uuid.Parse(claims.AccountID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+	limit, offset := int32(20), int32(0)
+	if value, parseErr := strconv.Atoi(r.URL.Query().Get("limit")); parseErr == nil && value > 0 && value <= 100 {
+		limit = int32(value)
+	}
+	if value, parseErr := strconv.Atoi(r.URL.Query().Get("offset")); parseErr == nil && value >= 0 {
+		offset = int32(value)
+	}
+	rows, err := h.pool.Query(r.Context(), `SELECT id, user_id, item_name, quantity, description, ST_AsText(location), is_claimed, claimed_by_user_id, created_at FROM mutual_aid_items WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`, userID, limit, offset)
+	if err != nil {
+		respondWithError(w, 500, "Failed to retrieve your community aid posts")
+		return
+	}
+	defer rows.Close()
+	items := make([]MutualAidResponse, 0)
+	for rows.Next() {
+		var item database.MutualAidItem
+		if err := rows.Scan(&item.ID, &item.UserID, &item.ItemName, &item.Quantity, &item.Description, &item.Location, &item.IsClaimed, &item.ClaimedByUserID, &item.CreatedAt); err != nil {
+			respondWithError(w, 500, "Failed to read your community aid posts")
+			return
+		}
+		var claimedBy *string
+		if item.ClaimedByUserID.Valid {
+			value := uuid.UUID(item.ClaimedByUserID.Bytes).String()
+			claimedBy = &value
+		}
+		items = append(items, MutualAidResponse{ID: uuid.UUID(item.ID.Bytes).String(), UserID: uuid.UUID(item.UserID.Bytes).String(), ItemName: item.ItemName, Quantity: item.Quantity, Description: pgTextToString(item.Description), Location: item.Location, IsClaimed: item.IsClaimed, ClaimedByUserID: claimedBy, CreatedAt: item.CreatedAt.Time})
+	}
+	respondWithJSON(w, 200, items)
+}
+
 func (h *APIHandler) ClaimMutualAidItem(w http.ResponseWriter, r *http.Request) {
 	claims, ok := middleware.GetClaims(r.Context())
 	if !ok || claims.AccountID == "" || claims.AccountType != auth.AccountTypeUser {
