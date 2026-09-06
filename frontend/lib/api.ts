@@ -267,6 +267,10 @@ export function getRoadHazards(limit = 20, offset = 0) {
   return request<RoadHazardResponse[]>(`/hazards?limit=${limit}&offset=${offset}`);
 }
 
+export function getMyRoadHazards(limit = 20, offset = 0) {
+  return request<RoadHazardResponse[]>(`/me/hazards?limit=${limit}&offset=${offset}`);
+}
+
 export function getRoadHazardById(id: string) {
   return request<RoadHazardResponse>(`/hazards/${encodeURIComponent(id)}`);
 }
@@ -280,6 +284,10 @@ export function submitAssistanceRequest(payload: SubmitAssistanceRequest) {
 
 export function getAssistanceRequests(limit = 20, offset = 0) {
   return request<AssistanceRequestResponse[]>(`/requests?limit=${limit}&offset=${offset}`);
+}
+
+export function getMyAssistanceRequests(limit = 20, offset = 0) {
+  return request<AssistanceRequestResponse[]>(`/me/requests?limit=${limit}&offset=${offset}`);
 }
 
 export function getAssistanceRequestById(id: string) {

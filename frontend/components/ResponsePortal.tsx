@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { ExternalLink, MapPin } from "lucide-react";
 import {
   getAssistanceRequests,
+  getMyAssistanceRequests,
   getDistributionCamps,
   getMutualAidItems,
   getResources,
   getRoadHazards,
+  getMyRoadHazards,
   getSession,
   type SessionData,
   submitAssistanceRequest,
@@ -69,11 +71,18 @@ export default function ResponsePortal() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  async function refreshFeeds() {
+  const refreshFeeds = useCallback(async (currentSession?: SessionData | null) => {
+    const activeSession = currentSession === undefined ? getSession() : currentSession;
     setLoading(true);
+    const issueResultPromise = activeSession
+      ? getMyRoadHazards()
+      : Promise.resolve({ success: true as const, data: [] as RoadHazardResponse[] });
+    const requestResultPromise = activeSession
+      ? getMyAssistanceRequests()
+      : Promise.resolve({ success: true as const, data: [] as AssistanceRequestResponse[] });
     const [issueResult, requestResult, aidResult, resourceResult, campResult] = await Promise.all([
-      getRoadHazards(),
-      getAssistanceRequests(),
+      issueResultPromise,
+      requestResultPromise,
       getMutualAidItems(),
       getResources(),
       getDistributionCamps(),
@@ -84,12 +93,12 @@ export default function ResponsePortal() {
     if (resourceResult.success) setResources(resourceResult.data);
     if (campResult.success) setCamps(campResult.data);
     setLoading(false);
-  }
+  }, []);
 
   useEffect(() => {
-    void refreshFeeds();
     const currentSession = getSession();
     setSession(currentSession);
+    void refreshFeeds(currentSession);
     if (currentSession) {
       if (currentSession.fullName) {
         setNeed((prev) => ({ ...prev, name: prev.name || currentSession.fullName || "" }));
@@ -100,7 +109,7 @@ export default function ResponsePortal() {
         setIssue((prev) => ({ ...prev, phone_number: prev.phone_number || currentSession.phone || "" }));
       }
     }
-  }, []);
+  }, [refreshFeeds]);
 
   async function handleIssueSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

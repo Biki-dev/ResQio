@@ -85,11 +85,13 @@ func main() {
 	// Road Hazards / Issue Submission (Wireframe: Left Form & Previous Submissions Feed)
 	mux.Handle("POST /api/hazards", optAuthMw(http.HandlerFunc(apiHandler.SubmitRoadHazard)))
 	mux.HandleFunc("GET /api/hazards", apiHandler.ListRoadHazards)
+	mux.Handle("GET /api/me/hazards", authMw(userGuard(http.HandlerFunc(apiHandler.ListMyRoadHazards))))
 	mux.HandleFunc("GET /api/hazards/{id}", apiHandler.GetRoadHazardByID)
 
 	// Assistance Requests (Wireframe: Right Form & Previous Calls Feed & Tracking)
 	mux.Handle("POST /api/requests", authMw(victimGuard(http.HandlerFunc(apiHandler.SubmitAssistanceRequest))))
 	mux.HandleFunc("GET /api/requests", apiHandler.ListAssistanceRequests)
+	mux.Handle("GET /api/me/requests", authMw(userGuard(http.HandlerFunc(apiHandler.ListMyAssistanceRequests))))
 	mux.HandleFunc("GET /api/requests/{id}", apiHandler.GetAssistanceRequestByID)
 	mux.HandleFunc("GET /api/requests/track/{code}", apiHandler.TrackAssistanceRequest)
 

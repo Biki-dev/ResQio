@@ -428,6 +428,23 @@ func (h *APIHandler) ListAssistanceRequests(w http.ResponseWriter, r *http.Reque
 	respondWithJSON(w, http.StatusOK, res)
 }
 
+func (h *APIHandler) ListMyAssistanceRequests(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.GetClaims(r.Context())
+	if !ok || claims.AccountID == "" {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	if _, err := uuid.Parse(claims.AccountID); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid account ID")
+		return
+	}
+	clone := r.Clone(r.Context())
+	query := clone.URL.Query()
+	query.Set("requester_id", claims.AccountID)
+	clone.URL.RawQuery = query.Encode()
+	h.ListAssistanceRequests(w, clone)
+}
+
 func (h *APIHandler) ListProviderAssistanceRequests(w http.ResponseWriter, r *http.Request) {
 	if _, ok := middleware.GetClaims(r.Context()); !ok {
 		respondWithError(w, http.StatusUnauthorized, "Authentication required")

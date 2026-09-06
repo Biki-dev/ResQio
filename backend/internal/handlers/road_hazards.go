@@ -238,6 +238,23 @@ func (h *APIHandler) ListRoadHazards(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, res)
 }
 
+func (h *APIHandler) ListMyRoadHazards(w http.ResponseWriter, r *http.Request) {
+	claims, ok := middleware.GetClaims(r.Context())
+	if !ok || claims.AccountID == "" {
+		respondWithError(w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	if _, err := uuid.Parse(claims.AccountID); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid account ID")
+		return
+	}
+	clone := r.Clone(r.Context())
+	query := clone.URL.Query()
+	query.Set("reporter_id", claims.AccountID)
+	clone.URL.RawQuery = query.Encode()
+	h.ListRoadHazards(w, clone)
+}
+
 func (h *APIHandler) GetRoadHazardByID(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	parsedID, err := uuid.Parse(idStr)
