@@ -137,6 +137,8 @@ export interface RoadHazardResponse {
   priority_score: number;
   cluster_id?: string;
   cluster_size: number;
+  latitude?: number;
+  longitude?: number;
   created_at: string;
 }
 

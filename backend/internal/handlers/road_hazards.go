@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,6 +49,8 @@ type RoadHazardResponse struct {
 	PriorityScore   float64   `json:"priority_score"`
 	ClusterID       *string   `json:"cluster_id,omitempty"`
 	ClusterSize     int32     `json:"cluster_size"`
+	Latitude        *float64  `json:"latitude,omitempty"`
+	Longitude       *float64  `json:"longitude,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 
@@ -171,6 +175,7 @@ func roadHazardResponse(hazard database.RoadHazard, reporterID *string) RoadHaza
 		value := hazard.ConfidenceScore.Float64
 		confidence = &value
 	}
+	latitude, longitude := parsePointLocation(hazard.Location)
 	return RoadHazardResponse{
 		ID: uuid.UUID(hazard.ID.Bytes).String(), ReporterID: reporterID,
 		Name: pgTextToString(hazard.ReporterName), PhoneNumber: pgTextToString(hazard.ReporterPhone),
@@ -178,8 +183,34 @@ func roadHazardResponse(hazard database.RoadHazard, reporterID *string) RoadHaza
 		Description: pgTextToString(hazard.Description), IsVerified: hazard.IsVerified,
 		ImageURL: pgTextToString(hazard.ImageUrl), PredictedClass: pgTextToString(hazard.PredictedClass),
 		ConfidenceScore: confidence, PriorityScore: hazard.PriorityScore, ClusterID: clusterID,
-		ClusterSize: hazard.ClusterSize, CreatedAt: hazard.CreatedAt.Time,
+		ClusterSize: hazard.ClusterSize, Latitude: latitude, Longitude: longitude, CreatedAt: hazard.CreatedAt.Time,
 	}
+}
+
+func parsePointLocation(location string) (*float64, *float64) {
+	value := strings.TrimSpace(location)
+	// pgx can return PostGIS geometry as EWKB hex. A Point EWKB payload is:
+	// byte order, geometry type, then little-endian longitude and latitude.
+	if decoded, err := hex.DecodeString(value); err == nil && len(decoded) >= 21 && decoded[0] == 1 {
+		geometryType := binary.LittleEndian.Uint32(decoded[1:5]) & 0xFF
+		if geometryType == 1 {
+			longitude := math.Float64frombits(binary.LittleEndian.Uint64(decoded[5:13]))
+			latitude := math.Float64frombits(binary.LittleEndian.Uint64(decoded[13:21]))
+			return &latitude, &longitude
+		}
+	}
+	value = strings.TrimPrefix(value, "POINT(")
+	value = strings.TrimSuffix(value, ")")
+	parts := strings.Fields(value)
+	if len(parts) != 2 {
+		return nil, nil
+	}
+	longitude, longitudeErr := strconv.ParseFloat(parts[0], 64)
+	latitude, latitudeErr := strconv.ParseFloat(parts[1], 64)
+	if longitudeErr != nil || latitudeErr != nil {
+		return nil, nil
+	}
+	return &latitude, &longitude
 }
 
 func (h *APIHandler) ListRoadHazards(w http.ResponseWriter, r *http.Request) {

@@ -132,6 +132,7 @@ func main() {
 	mux.Handle("PUT /api/admin/hazards/{id}/verify", authMw(adminGuard(http.HandlerFunc(apiHandler.VerifyAdminHazard))))
 	mux.Handle("POST /api/admin/ai/rebuild-hazard-clusters", authMw(adminGuard(http.HandlerFunc(apiHandler.RebuildAdminHazardClusters))))
 	mux.Handle("GET /api/admin/requests", authMw(adminGuard(http.HandlerFunc(apiHandler.ListAdminRequests))))
+	mux.Handle("POST /api/admin/requests/{id}/assign", authMw(adminGuard(http.HandlerFunc(apiHandler.AssignAdminRequest))))
 	mux.Handle("GET /api/admin/resources", authMw(adminGuard(http.HandlerFunc(apiHandler.ListAdminResources))))
 	mux.Handle("GET /api/admin/camps", authMw(adminGuard(http.HandlerFunc(apiHandler.ListAdminCamps))))
 

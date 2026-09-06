@@ -489,6 +489,7 @@ export function verifyAdminHazard(id: string, isVerified: boolean) { return requ
 export function getAdminRequests() { return request<AssistanceRequestResponse[]>("/admin/requests?limit=100"); }
 export function getAdminResources() { return request<ResourceResponse[]>("/admin/resources?limit=100"); }
 export function getAdminCamps() { return request<DistributionCamp[]>("/admin/camps?limit=100"); }
+export function assignAdminRequest(id: string, providerId: string) { return request<{ message: string; ping_id: string }, { provider_id: string }>(`/admin/requests/${encodeURIComponent(id)}/assign`, { method: "POST", body: { provider_id: providerId } }); }
 export function rebuildAdminHazardClusters() { return request<{ message: string; processed: number }>("/admin/ai/rebuild-hazard-clusters", { method: "POST" }); }
 
 

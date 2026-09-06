@@ -12,6 +12,10 @@ import (
 	"go-sse-server/internal/middleware"
 )
 
+type AdminAssignRequest struct {
+	ProviderID string `json:"provider_id"`
+}
+
 type AdminUser struct {
 	ID        string    `json:"id"`
 	Phone     string    `json:"phone"`
@@ -268,6 +272,54 @@ func (h *APIHandler) RebuildAdminHazardClusters(w http.ResponseWriter, r *http.R
 	}
 	h.recordAdminAudit(r, "REBUILD_HAZARD_CLUSTERS", "hazard", nil, map[string]string{"radius_meters": "100"})
 	respondWithJSON(w, 200, map[string]interface{}{"message": "Hazard clusters rebuilt", "processed": len(hazards)})
+}
+
+func (h *APIHandler) AssignAdminRequest(w http.ResponseWriter, r *http.Request) {
+	requestID, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		respondWithError(w, 400, "Invalid request ID")
+		return
+	}
+	var input AdminAssignRequest
+	if json.NewDecoder(r.Body).Decode(&input) != nil {
+		respondWithError(w, 400, "Invalid request payload")
+		return
+	}
+	providerID, err := uuid.Parse(input.ProviderID)
+	if err != nil {
+		respondWithError(w, 400, "Invalid provider ID")
+		return
+	}
+	var pingID uuid.UUID
+	var pingOrder int
+	err = h.pool.QueryRow(r.Context(), `
+		WITH request_row AS (
+			SELECT id, category, quantity_needed FROM assistance_requests
+			WHERE id = $1 AND status NOT IN ('FULFILLED', 'CANCELLED') AND dispatch_status <> 'MATCHED'
+		), provider_row AS (
+			SELECT p.id FROM providers p
+			WHERE p.id = $2 AND p.is_active = TRUE AND p.is_verified = TRUE
+		), capacity AS (
+			SELECT r.provider_id FROM resources r, request_row q
+			WHERE r.provider_id = $2 AND r.category = q.category AND r.current_capacity >= q.quantity_needed
+			LIMIT 1
+		), next_order AS (
+			SELECT COALESCE(MAX(ping_order), 0) + 1 AS value FROM dispatch_pings WHERE request_id = $1
+		)
+		INSERT INTO dispatch_pings (request_id, provider_id, ping_order, expires_at)
+		SELECT q.id, p.id, n.value, NOW() + INTERVAL '3 minutes'
+		FROM request_row q, provider_row p, capacity c, next_order n
+		RETURNING id, ping_order`, requestID, providerID).Scan(&pingID, &pingOrder)
+	if err != nil {
+		respondWithError(w, 409, "Provider is unavailable, unverified, lacks capacity, or request is already handled")
+		return
+	}
+	if _, err := h.pool.Exec(r.Context(), `UPDATE assistance_requests SET dispatch_status = 'DISPATCHING', updated_at = NOW() WHERE id = $1`, requestID); err != nil {
+		respondWithError(w, 500, "Failed to update request dispatch state")
+		return
+	}
+	h.recordAdminAudit(r, "ASSIGN_REQUEST", "assistance_request", &requestID, map[string]string{"provider_id": providerID.String(), "ping_id": pingID.String()})
+	respondWithJSON(w, 200, map[string]interface{}{"message": "Provider assignment sent", "ping_id": pingID.String(), "ping_order": pingOrder})
 }
 
 func adminPagination(r *http.Request) (int, int) {
